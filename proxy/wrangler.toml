@@ -1,11 +1,13 @@
 name = "meeting-notes-proxy"
 main = "src/worker.js"
 compatibility_date = "2026-01-01"
+workers_dev = true
+preview_urls = false   # no extra per-version URLs that would also hold the API key
 
 # Create the namespace once:  npx wrangler kv namespace create KV   then paste its id here.
 [[kv_namespaces]]
 binding = "KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "a4309b32ee6d44b9a90590f1be206d5d"
 
 [vars]
 FREE_MEETINGS = "5"
