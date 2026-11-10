@@ -24,6 +24,8 @@ os.environ.update(
     VOICEPRINT_DIR=str(DATA / "home" / ".meeting-notes"),
     MEETING_DETECT="0",
     ANTHROPIC_API_KEY="",            # set (even if empty) so load_dotenv never pulls the real key from .env
+    CLOUD_API_URL="",                # likewise: no cloud summaries, whatever .env says
+    DEVICE_ID_FILE=str(DATA / "home" / "device_id"),
     OLLAMA_HOST="http://127.0.0.1:9",  # nothing listens here: "Ollama not running"
     OLLAMA_MODEL="qwen2.5:14b",
     TRANSCRIBE_MODEL="parakeet:mlx-community/parakeet-tdt-0.6b-v2",

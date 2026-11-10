@@ -23,3 +23,13 @@ def pytest_generate_tests(metafunc):
 @pytest.fixture(scope="session")
 def provider(request):
     return request.config.getoption("--llm")
+
+
+@pytest.fixture(autouse=True)
+def _speech_model_is_present(request, monkeypatch):
+    """Endpoints refuse to start work until the speech model is downloaded; tests of app.py should not
+    depend on this machine's Hugging Face cache. test_models_* exercise the real check."""
+    if request.node.name.startswith("test_models_"):
+        return
+    import models
+    monkeypatch.setattr(models, "is_ready", lambda repo: True)

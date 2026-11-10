@@ -68,7 +68,10 @@ export interface MockOpts {
   devices?: typeof DEVICES;
   ollama?: { running: boolean; models: { name: string; size_gb: number }[] };
   metrics?: Record<string, unknown>;
+  model?: Record<string, unknown>;   // /api/model/status; default: the speech model is already downloaded
 }
+
+export const MODEL_READY = { repo: 'mlx-community/parakeet-tdt-0.6b-v2', ready: true, downloading: false, bytes: 2.47e9, total: 2.47e9, error: null };
 
 export const OLLAMA_OK = { running: true, models: [{ name: 'qwen2.5:14b', size_gb: 9 }, { name: 'llama3.1:8b', size_gb: 4.7 }] };
 
@@ -94,6 +97,7 @@ export async function mockEnvironment(page: Page, o: MockOpts = {}) {
   await page.route('**/api/devices', r => json(r, o.devices ?? DEVICES));
   await page.route('**/api/ollama/models', r => json(r, o.ollama ?? OLLAMA_OK));
   await page.route('**/api/metrics', r => json(r, o.metrics ?? METRICS));
+  await page.route('**/api/model/status*', r => json(r, o.model ?? MODEL_READY));
 }
 
 /** Opens the app and waits for the first load (config, devices, providers, list) to finish. */

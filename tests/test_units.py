@@ -1,5 +1,7 @@
 """Fast tests (no models, no audio files): run with `.venv/bin/python -m pytest tests/test_units.py`."""
 
+import time
+
 import numpy as np
 import pytest
 
@@ -1271,3 +1273,91 @@ def test_librosa_shim_matches_librosa_mel_filterbank():
         assert np.allclose(got, ref, atol=1e-7), (sr, n_fft, n_mels, float(np.abs(got - ref).max()))
     with pytest.raises(NotImplementedError):
         _librosa_shim.mel(sr=16000, n_fft=512, htk=True)
+
+
+# ---------- speech model download ----------
+
+def _fake_cache(tmp_path, repo, *, weights=True, broken=False, partial=0):
+    """Lay out a Hugging Face cache folder like huggingface_hub does."""
+    root = tmp_path / ("models--" + repo.replace("/", "--"))
+    (root / "blobs").mkdir(parents=True)
+    (root / "refs").mkdir()
+    (root / "snapshots" / "abc").mkdir(parents=True)
+    (root / "refs" / "main").write_text("abc")
+    (root / "blobs" / "c1").write_bytes(b"{}")
+    (root / "snapshots" / "abc" / "config.json").symlink_to("../../blobs/c1")
+    if weights:
+        (root / "blobs" / "w1").write_bytes(b"x" * 1000)
+        (root / "snapshots" / "abc" / "model.safetensors").symlink_to("../../blobs/" + ("missing" if broken else "w1"))
+    if partial:
+        (root / "blobs" / "w2.incomplete").write_bytes(b"y" * partial)
+    return root
+
+
+def test_models_ready_needs_config_and_working_weights(tmp_path, monkeypatch):
+    import models
+    monkeypatch.setattr(models, "_cache_root", lambda: tmp_path)
+    repo = "org/model"
+    assert not models.is_ready(repo)                                   # nothing downloaded
+    _fake_cache(tmp_path, repo, weights=False)
+    assert not models.is_ready(repo)                                   # no weights yet
+    import shutil
+    shutil.rmtree(tmp_path / "models--org--model")
+    _fake_cache(tmp_path, repo, broken=True)
+    assert not models.is_ready(repo)                                   # dangling symlink: an interrupted download
+    shutil.rmtree(tmp_path / "models--org--model")
+    _fake_cache(tmp_path, repo)
+    assert models.is_ready(repo)
+
+
+def test_models_progress_counts_partial_files_and_resumes(tmp_path, monkeypatch):
+    import models
+    monkeypatch.setattr(models, "_cache_root", lambda: tmp_path)
+    repo = "org/model"
+    _fake_cache(tmp_path, repo, weights=False, partial=400)
+    assert models.bytes_on_disk(repo) == 402                           # 2 bytes of config + 400 incomplete
+    st = models.status(repo)
+    assert not st["ready"] and not st["downloading"] and st["bytes"] == 402
+
+
+def test_models_start_downloads_once_and_reports_errors(tmp_path, monkeypatch):
+    import models
+    import threading
+    monkeypatch.setattr(models, "_cache_root", lambda: tmp_path)
+    monkeypatch.setattr(models, "_total_bytes", lambda repo: 5000)
+    monkeypatch.setattr(models, "_jobs", {})
+    calls, release = [], threading.Event()
+
+    def fake_download(repo):
+        calls.append(repo)
+        release.wait(5)
+        raise ConnectionError("no route")
+
+    import huggingface_hub
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", fake_download)
+    first = models.start("org/model")
+    models.start("org/model")                                          # a second click must not start another download
+    assert first["downloading"] and first["total"] == 5000
+    release.set()
+    for _ in range(100):
+        if not models.status("org/model")["downloading"]:
+            break
+        time.sleep(0.02)
+    st = models.status("org/model")
+    assert len(calls) == 1 and not st["ready"] and "internet connection" in st["error"]
+
+
+def test_models_endpoints_and_gating(monkeypatch):
+    import app
+    import models
+    monkeypatch.setattr(models, "is_ready", lambda repo: False)
+    monkeypatch.setattr(models, "status", lambda repo: {"repo": repo, "ready": False, "downloading": False,
+                                                       "bytes": 0, "total": 10, "error": None})
+    assert app.model_status(None)["ready"] is False
+    with pytest.raises(app.HTTPException) as e:
+        app._require_model(None)
+    assert e.value.status_code == 409
+    with pytest.raises(app.HTTPException):
+        app.model_status("parakeet:evil/other-model")                  # only known engines are downloadable
+    monkeypatch.setattr(models, "is_ready", lambda repo: True)
+    app._require_model(None)

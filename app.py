@@ -23,6 +23,11 @@ CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 load_dotenv(CONFIG_DIR / ".env")
 load_dotenv(RESOURCE_DIR / "defaults.env")   # packaged defaults; never overrides what is already set
 
+# Plain HTTP downloads for Hugging Face models: the default hf_xet backend keeps its data in a private
+# staging area until a file is complete, so the model-download progress bar (models.py) would sit at 0%.
+# Plain downloads grow a .incomplete file in the cache and resume from it after an interruption.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+
 # Trust the operating system's certificate store (macOS Keychain), not just the bundled certifi list.
 # Office networks often re-sign HTTPS with a company root CA (proxy, Cloudflare WARP, Zscaler) that only
 # the system store knows; without this every cloud call and model download fails with
@@ -47,6 +52,7 @@ import aec  # noqa: E402
 import cloud  # noqa: E402
 import diarize  # noqa: E402
 import live  # noqa: E402
+import models  # noqa: E402
 import metrics  # noqa: E402
 import speakers  # noqa: E402
 import summarizer  # noqa: E402
@@ -107,6 +113,18 @@ def _check_stt(spec: str | None):
     """Only offer engines the app knows (a free-form model name would let a web page pick any download)."""
     if spec and spec not in {e["id"] for e in transcriber.ENGINES} and spec != transcriber.default_engine():
         raise HTTPException(400, f"Unknown speech-to-text model: {spec!r}")
+
+
+def _stt_repo(spec: str | None) -> str | None:
+    """Hub repo of a Parakeet engine spec (the model this app downloads itself); None for others."""
+    kind, repo = transcriber.split_engine(spec)
+    return repo if kind == "parakeet" else None
+
+
+def _require_model(spec: str | None):
+    repo = _stt_repo(spec)
+    if repo and not models.is_ready(repo):
+        raise HTTPException(409, "The speech model is not downloaded yet. Download it first.")
 
 
 def _provider_label(kind: str, model: str | None) -> str:
@@ -549,6 +567,28 @@ def voice_delete():
     return _voice_status()
 
 
+class ModelBody(BaseModel):
+    stt: str | None = None
+
+
+@app.get("/api/model/status")
+def model_status(stt: str | None = None):
+    _check_stt(stt)
+    repo = _stt_repo(stt)
+    if not repo:   # engines other than the bundled Parakeet manage their own files
+        return {"repo": None, "ready": True, "downloading": False, "bytes": 0, "total": 0, "error": None}
+    return models.status(repo)
+
+
+@app.post("/api/model/download")
+def model_download(body: ModelBody):
+    _check_stt(body.stt)
+    repo = _stt_repo(body.stt)
+    if not repo:
+        raise HTTPException(400, "This speech model is not downloaded by the app.")
+    return models.start(repo)
+
+
 @app.get("/api/cloud/quota")
 def cloud_quota():
     """Free cloud summaries left for this device (None when the proxy is off or unreachable)."""
@@ -567,6 +607,7 @@ def start(body: StartBody):
         raise HTTPException(400, "Choose at least one input device")
     _split_provider(body.provider)  # reject a bad choice before recording, not after
     _check_stt(body.stt)
+    _require_model(body.stt)
     with _lock:
         rec = _get_recorder()
         if rec.is_recording:
@@ -696,6 +737,7 @@ async def upload(file: UploadFile = File(...), title: str = Form(""), provider: 
                  stt: str = Form("")):
     _split_provider(provider)
     _check_stt(stt or None)
+    _require_model(stt or None)
     folder = _new_folder(title or Path(file.filename or "upload").stem)
     suffix = Path(file.filename or "audio").suffix or ".m4a"
     dest = folder / f"audio{suffix}"

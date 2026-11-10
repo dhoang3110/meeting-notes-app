@@ -60,6 +60,10 @@
   label .opt { font-weight: 400; }
   select, input[type=text], input[type=search] { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
   select:hover, input:hover { border-color: var(--muted); }
+  .dlbar { height: 8px; border-radius: 99px; background: var(--border); overflow: hidden; margin: 12px 0 6px; }
+  .dlbar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s ease; }
+  .dlbar.indeterminate > i { width: 35%; animation: dlslide 1.2s ease-in-out infinite alternate; }
+  @keyframes dlslide { from { margin-left: 0; } to { margin-left: 65%; } }
   .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
   .hint.warn { color: var(--warn); }
 
@@ -292,6 +296,14 @@
     <section id="v-new" class="page">
       <h1>New meeting</h1>
       <p class="sub">Choose what to record and which models to use, then start.</p>
+
+      <div class="card" id="modelCard" hidden>
+        <h3>Set up speech recognition</h3>
+        <p id="modelText" style="font-size:14px;line-height:1.5"></p>
+        <div class="dlbar" id="modelBar" hidden><i></i></div>
+        <div class="hint" id="modelHint"></div>
+        <div style="margin-top:12px"><button class="btn primary" id="modelBtn" type="button">Download</button></div>
+      </div>
 
       <div class="card">
         <label for="title">Meeting title <span class="opt">(optional)</span></label>
@@ -601,7 +613,46 @@ function saveDeviceChoice() {
 function onDeviceChange() { saveDeviceChoice.call(this); if (testTimer) startTest(); }
 $('#mic').onchange = onDeviceChange; $('#sys').onchange = onDeviceChange;
 
-$('#stt').onchange = () => { lsSet('stt', $('#stt').value); sttHint(); };
+$('#stt').onchange = () => { lsSet('stt', $('#stt').value); sttHint(); loadModel(); };
+
+// ---- speech model download (first run) ----
+let modelState = { ready: true }, modelTimer = null;
+const fmtGB = b => b >= 1e9 ? (b / 1e9).toFixed(2) + ' GB' : Math.round(b / 1e6) + ' MB';
+async function loadModel() {
+  clearTimeout(modelTimer);
+  try { modelState = await api('/api/model/status?stt=' + encodeURIComponent($('#stt').value || '')); }
+  catch { modelState = { ready: true }; }   // unknown: do not lock the app
+  renderModel();
+  if (modelState.downloading) modelTimer = setTimeout(loadModel, 1000);
+}
+function renderModel() {
+  const m = modelState, card = $('#modelCard');
+  card.hidden = m.ready;
+  $('#recBtn').disabled = !m.ready; $('#uploadBtn').disabled = !m.ready;
+  $('#recBtn').title = $('#uploadBtn').title = m.ready ? '' : 'Download the speech model first';
+  if (m.ready) return;
+  const size = m.total ? fmtGB(m.total) : 'about 2.5 GB';
+  const bar = $('#modelBar'), fill = bar.firstElementChild;
+  $('#modelText').textContent = m.downloading
+    ? 'Downloading the speech model. You can keep this window open or grant the permissions macOS asks for.'
+    : `Meeting Notes turns speech into text on this Mac, so your audio never leaves it. That needs a speech model (${size}), downloaded once.`;
+  bar.hidden = !m.downloading;
+  bar.classList.toggle('indeterminate', !m.total);
+  const pct = m.total ? Math.min(100, Math.round(100 * m.bytes / m.total)) : 0;
+  fill.style.width = m.total ? pct + '%' : '';
+  $('#modelHint').textContent = m.error ? m.error
+    : m.downloading ? (m.total ? `${fmtGB(m.bytes)} of ${fmtGB(m.total)} (${pct}%)` : fmtGB(m.bytes))
+    : (m.bytes > 0 ? `Resumes from ${fmtGB(m.bytes)}.` : 'Needs an internet connection this once.');
+  $('#modelHint').className = 'hint' + (m.error ? ' warn' : '');
+  $('#modelBtn').hidden = m.downloading;
+  $('#modelBtn').textContent = m.error || m.bytes > 0 ? 'Retry download' : `Download (${size})`;
+}
+$('#modelBtn').onclick = async () => {
+  $('#modelBtn').hidden = true;
+  try { modelState = await api('/api/model/download', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stt: $('#stt').value || null }) }); } catch (e) { modelState = { ...modelState, error: e.message }; }
+  renderModel(); loadModel();
+};
 
 function providerLabel() { const o = $('#provider').selectedOptions[0]; return o ? o.text.replace(/^Ollama · /, '') : ''; }
 async function loadProviders() {
@@ -978,7 +1029,7 @@ window.addEventListener('hashchange', () => { const id = location.hash.slice(1);
   try { config = await api('/api/config'); }
   catch { $('#v-new').innerHTML = '<div class="alert error"><div><b>Cannot reach the app server.</b> Is <code>./run.sh</code> still running in Terminal?</div></div>'; return; }
   loadStt();
-  await Promise.all([loadProviders(), loadDevices(), refreshList()]);
+  await Promise.all([loadProviders(), loadDevices(), refreshList(), loadModel()]);
   await poll();
   const id = location.hash.slice(1);
   if (id && !status.recording && items.some(m => m.id === id)) openMeeting(id);
