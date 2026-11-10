@@ -39,6 +39,10 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile  # noqa: E402
 from fastapi.responses import FileResponse, PlainTextResponse  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
+if FROZEN:   # the packaged app ships without librosa/numba/sklearn (see _librosa_shim.py)
+    import _librosa_shim
+    _librosa_shim.install()
+
 import aec  # noqa: E402
 import cloud  # noqa: E402
 import diarize  # noqa: E402

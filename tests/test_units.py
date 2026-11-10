@@ -1259,3 +1259,15 @@ def test_app_accepts_cloud_provider_and_labels_it():
     assert app._split_provider("cloud") == ("cloud", None)
     assert app._provider_label("cloud", None) == "Cloud"
     assert app._provider_label("ollama", "qwen2.5:14b") == "Ollama (qwen2.5:14b)"
+
+
+def test_librosa_shim_matches_librosa_mel_filterbank():
+    librosa = pytest.importorskip("librosa")
+    import _librosa_shim
+    for sr, n_fft, n_mels in [(16000, 512, 80), (16000, 512, 128), (16000, 400, 80), (16000, 400, 128)]:
+        ref = librosa.filters.mel(sr=sr, n_fft=n_fft, n_mels=n_mels, fmin=0, fmax=sr / 2, norm="slaney")
+        got = _librosa_shim.mel(sr=sr, n_fft=n_fft, n_mels=n_mels, fmin=0, fmax=sr / 2, norm="slaney")
+        assert got.shape == ref.shape and got.dtype == ref.dtype
+        assert np.allclose(got, ref, atol=1e-7), (sr, n_fft, n_mels, float(np.abs(got - ref).max()))
+    with pytest.raises(NotImplementedError):
+        _librosa_shim.mel(sr=16000, n_fft=512, htk=True)

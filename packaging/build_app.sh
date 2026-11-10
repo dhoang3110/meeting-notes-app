@@ -20,6 +20,7 @@ mkdir -p build_tmp
   --workpath build_tmp --specpath build_tmp --paths . --add-data "$ROOT/static:static" --add-data "$ROOT/packaging/defaults.env:." \
   --collect-all mlx --collect-all parakeet_mlx --collect-all mlx_whisper --collect-all sherpa_onnx \
   --collect-all sounddevice --collect-all soundfile \
+  --exclude-module librosa --exclude-module numba --exclude-module llvmlite --exclude-module sklearn \
   --exclude-module torch --exclude-module torchaudio --exclude-module matplotlib --exclude-module tkinter \
   app.py > build_tmp/pyi.log 2>&1 || { tail -30 build_tmp/pyi.log; exit 1; }
 fi
@@ -35,6 +36,9 @@ cp native/bin/systap "$APP/Contents/Resources/bin/systap"
 # (static build, system frameworks only; see requirements-dev.txt: imageio-ffmpeg).
 cp "$(.venv/bin/python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')" "$APP/Contents/Resources/bin/ffmpeg"
 chmod +x "$APP/Contents/Resources/bin/ffmpeg"
+
+# C++ headers / cmake files shipped with mlx are only for compiling against it
+rm -rf "$APP/Contents/Resources/server/_internal/mlx/include" "$APP/Contents/Resources/server/_internal/mlx/lib/cmake"
 
 echo "==> sign ($SIGN_ID)"
 OPTS=(--force --timestamp=none --sign "$SIGN_ID" --entitlements packaging/entitlements.plist)
