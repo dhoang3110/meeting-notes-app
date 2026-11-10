@@ -13,3 +13,4 @@ anthropic>=0.40
 psutil>=5.9
 parakeet-mlx>=0.7
 sherpa-onnx>=1.12   # speaker embeddings for the voiceprint
+truststore>=0.9   # use the system certificate store (corporate TLS inspection)

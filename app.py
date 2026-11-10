@@ -23,6 +23,16 @@ CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 load_dotenv(CONFIG_DIR / ".env")
 load_dotenv(RESOURCE_DIR / "defaults.env")   # packaged defaults; never overrides what is already set
 
+# Trust the operating system's certificate store (macOS Keychain), not just the bundled certifi list.
+# Office networks often re-sign HTTPS with a company root CA (proxy, Cloudflare WARP, Zscaler) that only
+# the system store knows; without this every cloud call and model download fails with
+# CERTIFICATE_VERIFY_FAILED.
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except Exception as e:  # the app still works on networks without interception
+    print(f"truststore not active: {e}")
+
 import numpy as np  # noqa: E402
 import uvicorn  # noqa: E402
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile  # noqa: E402
