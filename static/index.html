@@ -607,16 +607,22 @@ function providerLabel() { const o = $('#provider').selectedOptions[0]; return o
 async function loadProviders() {
   const sel = $('#provider');
   const saved = sel.dataset.ready ? sel.value : lsGet('provider');   // keep the user's choice on refresh
-  let models = [], running = true;
+  let models = [], running = true, cloudQuota = null;
   try { const r = await api('/api/ollama/models'); models = r.models; running = r.running; } catch {}
+  if (config.cloud_enabled) { try { cloudQuota = (await api('/api/cloud/quota')).quota; } catch {} }
   sel.innerHTML = '';
+  if (config.cloud_enabled) {
+    const left = cloudQuota ? (cloudQuota.remaining > 0 ? `${cloudQuota.remaining} of ${cloudQuota.limit} free meetings left` : 'free meetings used up') : 'free trial';
+    sel.add(new Option(`Cloud · ${left}`, 'cloud'));
+  }
   sel.add(new Option(config.claude_ready ? 'Claude API' : 'Claude API (no API key set)', 'claude'));
   for (const m of models) sel.add(new Option(`Ollama · ${m.name} (${m.size_gb} GB)`, `ollama:${m.name}`));
   if (!models.length) sel.add(new Option('Ollama (not running, or no models installed)', 'ollama'));
   const has = v => [...sel.options].some(o => o.value === v);
   const envDefault = `ollama:${config.ollama_model}`;
-  const candidates = [saved === 'ollama' ? `ollama:${config.ollama_model}` : saved, envDefault, `ollama:${config.ollama_model}`]
+  const candidates = [config.cloud_enabled && !saved ? 'cloud' : null, saved === 'ollama' ? `ollama:${config.ollama_model}` : saved, envDefault, `ollama:${config.ollama_model}`]
     .filter(v => v && has(v) && (v !== 'claude' || config.claude_ready));
+  if (!candidates.length && config.cloud_enabled) candidates.push('cloud');
   const firstOllama = [...sel.options].find(o => o.value.startsWith('ollama'));
   sel.value = candidates[0] || (firstOllama ? firstOllama.value : 'ollama');
   sel.dataset.ready = '1';
@@ -625,11 +631,12 @@ async function loadProviders() {
 function providerHint(running) {
   const h = $('#providerHint'), v = $('#provider').value;
   let msg = '';
-  if (running === false) msg = 'Ollama is not running. Start it with “ollama serve”, or use Claude.';
+  if (v === 'cloud') msg = 'Sends only the transcript text (never the audio) to our server to write the notes. Audio stays on this Mac.';
+  else if (running === false) msg = 'Ollama is not running. Start it with “ollama serve”, or use Claude.';
   else if (v === 'claude' && !config.claude_ready) msg = 'Claude needs an API key: add it under Settings.';
   else if (v === 'claude') msg = 'Sends the transcript to Anthropic. Check your company policy.';
   else if (v.startsWith('ollama')) msg = 'Runs on this Mac. Nothing leaves your machine.';
-  h.textContent = msg; h.className = 'hint' + (running === false ? ' warn' : '');
+  h.textContent = msg; h.className = 'hint' + (running === false && v !== 'cloud' ? ' warn' : '');
 }
 $('#provider').onchange = () => { lsSet('provider', $('#provider').value); providerHint(); };
 window.addEventListener('focus', () => { if (!wasRecording && config.notes_dir) loadProviders(); });  // pick up newly pulled models

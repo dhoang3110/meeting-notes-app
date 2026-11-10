@@ -1,0 +1,15 @@
+name = "meeting-notes-proxy"
+main = "src/worker.js"
+compatibility_date = "2026-01-01"
+
+# Create the namespace once:  npx wrangler kv namespace create KV   then paste its id here.
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+FREE_MEETINGS = "5"
+MODEL = "claude-sonnet-5-5"
+# INVITE_CODES = "code1,code2"   # set to restrict the beta to people you invited
+
+# Secret (never commit):  npx wrangler secret put ANTHROPIC_API_KEY

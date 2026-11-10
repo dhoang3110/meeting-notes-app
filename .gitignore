@@ -19,3 +19,5 @@ tests/e2e/playwright-report/
 native/bin/
 packaging/dist/
 build_tmp/
+proxy/node_modules/
+proxy/.wrangler/

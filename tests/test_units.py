@@ -1189,3 +1189,73 @@ def test_recorder_track_can_use_the_systap_pseudo_device(tmp_path, monkeypatch):
     created["cb"](np.full((960, 1), 0.3, dtype="float32"), 960, None, None)
     t.stop()
     assert t.peak > 0.29
+
+
+# ---------- cloud summary provider ----------
+
+def test_cloud_device_id_is_created_once_and_private(tmp_path, monkeypatch):
+    import cloud
+    monkeypatch.setenv("DEVICE_ID_FILE", str(tmp_path / "sub" / "device_id"))
+    a = cloud.device_id()
+    assert a == cloud.device_id() and len(a) == 36
+    assert (tmp_path / "sub" / "device_id").stat().st_mode & 0o777 == 0o600
+    (tmp_path / "sub" / "device_id").write_text("garbage")
+    assert cloud.device_id() != "garbage"             # a corrupt file is replaced
+
+
+class _Resp:
+    def __init__(self, status, data):
+        self.status_code, self._d, self.ok = status, data, status < 400
+    def json(self):
+        return self._d
+
+
+def test_cloud_summarize_sends_only_text_and_reports_quota_errors(tmp_path, monkeypatch):
+    import cloud
+    monkeypatch.setenv("DEVICE_ID_FILE", str(tmp_path / "id"))
+    monkeypatch.setenv("CLOUD_API_URL", "https://proxy.example/")
+    monkeypatch.setenv("CLOUD_INVITE_CODE", "beta1")
+    sent = {}
+
+    def fake_post(url, headers, json, timeout):
+        sent.update(url=url, headers=headers, json=json)
+        return _Resp(200, {"text": '{"title":"T"}', "usage": {"input_tokens": 5, "output_tokens": 2}})
+
+    monkeypatch.setattr(cloud.requests, "post", fake_post)
+    text, usage = cloud.summarize("Me: hi", "m1", "Standup", "English")
+    assert text == '{"title":"T"}' and usage["output_tokens"] == 2
+    assert sent["url"] == "https://proxy.example/v1/summarize"
+    assert sent["headers"]["X-Invite-Code"] == "beta1" and len(sent["headers"]["X-Device-Id"]) == 36
+    assert set(sent["json"]) == {"meeting_id", "transcript", "hint_title", "language"}   # no audio, no paths
+
+    monkeypatch.setattr(cloud.requests, "post", lambda *a, **k: _Resp(429, {"error": "quota_exceeded", "limit": 5}))
+    with pytest.raises(cloud.QuotaExceeded, match="5 free cloud summaries"):
+        cloud.summarize("x", "m", None, "English")
+    monkeypatch.setattr(cloud.requests, "post", lambda *a, **k: _Resp(502, {"message": "down"}))
+    with pytest.raises(cloud.CloudError, match="down"):
+        cloud.summarize("x", "m", None, "English")
+    monkeypatch.delenv("CLOUD_API_URL")
+    with pytest.raises(cloud.CloudError, match="not configured"):
+        cloud.summarize("x", "m", None, "English")
+
+
+def test_summarizer_cloud_provider_parses_json_and_records_usage(monkeypatch):
+    import cloud
+    seen = {}
+
+    def fake(transcript, meeting_id, hint_title, language):
+        seen.update(meeting_id=meeting_id, hint=hint_title)
+        return 'Here: {"title": "Plan", "summary": "S", "topics": []}', {"input_tokens": 50, "output_tokens": 9}
+
+    monkeypatch.setattr(cloud, "summarize", fake)
+    notes = summarizer.summarize("Me: hello", provider="cloud", hint_title="X", meeting_id="2026_m")
+    assert notes["title"] == "Plan" and notes["decisions"] == [] and seen == {"meeting_id": "2026_m", "hint": "X"}
+    usage = summarizer.last_run_usage("cloud", None)
+    assert usage["input_tokens"] == 50 and usage["output_tokens"] == 9 and usage["calls"] == 1
+
+
+def test_app_accepts_cloud_provider_and_labels_it():
+    import app
+    assert app._split_provider("cloud") == ("cloud", None)
+    assert app._provider_label("cloud", None) == "Cloud"
+    assert app._provider_label("ollama", "qwen2.5:14b") == "Ollama (qwen2.5:14b)"

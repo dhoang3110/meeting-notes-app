@@ -29,6 +29,7 @@ from fastapi.responses import FileResponse, PlainTextResponse  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
 import aec  # noqa: E402
+import cloud  # noqa: E402
 import diarize  # noqa: E402
 import live  # noqa: E402
 import metrics  # noqa: E402
@@ -93,12 +94,18 @@ def _check_stt(spec: str | None):
         raise HTTPException(400, f"Unknown speech-to-text model: {spec!r}")
 
 
+def _provider_label(kind: str, model: str | None) -> str:
+    return {"claude": "Claude", "cloud": "Cloud"}.get(kind) or f"Ollama ({model})"
+
+
 def _split_provider(spec: str) -> tuple[str, str | None]:
     """'claude' -> ('claude', None); 'ollama' -> ('ollama', model from .env);
     'ollama:qwen2.5:7b' -> ('ollama', 'qwen2.5:7b'). Anything else is a 400."""
     kind, _, model = (spec or "").partition(":")
     if kind == "claude":
         return "claude", None
+    if kind == "cloud":
+        return "cloud", None
     if kind == "ollama":
         return "ollama", model or os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
     raise HTTPException(400, f"Unknown summary provider: {spec!r}")
@@ -110,9 +117,9 @@ def _summarize_and_save(folder: Path, provider: str):
     segments = json.loads((folder / "transcript.json").read_text())
     text = transcriber.segments_to_text(segments)
     kind, model = _split_provider(provider)
-    label = "Claude" if kind == "claude" else f"Ollama ({model})"
+    label = _provider_label(kind, model)
     _jobs[mid] = {"stage": f"summarising with {label}", "error": None}
-    notes = summarizer.summarize(text, provider=kind, hint_title=meta.get("user_title"), model=model)
+    notes = summarizer.summarize(text, provider=kind, hint_title=meta.get("user_title"), model=model, meeting_id=mid)
     (folder / "notes.json").write_text(json.dumps(notes, indent=2, ensure_ascii=False))
     usage = summarizer.last_run_usage(kind, model or os.getenv("CLAUDE_MODEL", "claude-sonnet-5-5"))
     _write_meta(folder, title=notes.get("title"), provider=kind, model=model, usage=usage)
@@ -129,7 +136,7 @@ def _render_notes(folder: Path):
     (folder / "notes.md").write_text(summarizer.render_markdown(notes, {
         "date": meta.get("date", ""),
         "duration": _fmt_duration(meta.get("duration_sec", 0)),
-        "provider": "Claude" if kind == "claude" else f"Ollama ({model})",
+        "provider": _provider_label(kind, model),
         "usage": meta.get("usage"),
     }, transcriber.segments_to_text(segments)))
 
@@ -318,6 +325,7 @@ def config():
         "stt_models": transcriber.ENGINES,
         "default_stt": transcriber.default_engine(),
         "ollama_model": os.getenv("OLLAMA_MODEL", "qwen2.5:14b"),
+        "cloud_enabled": cloud.enabled(),
     }
 
 
@@ -526,6 +534,12 @@ def voice_delete():
     return _voice_status()
 
 
+@app.get("/api/cloud/quota")
+def cloud_quota():
+    """Free cloud summaries left for this device (None when the proxy is off or unreachable)."""
+    return {"enabled": cloud.enabled(), "quota": cloud.quota()}
+
+
 @app.get("/api/devices")
 def devices():
     from recorder import list_input_devices
@@ -635,7 +649,7 @@ def _session_info() -> dict | None:
         return None
     kind, model = _split_provider(_current["provider"] or "ollama")
     return {"stt": transcriber.engine_label(_read_meta(folder).get("stt")),
-            "summary": "Claude" if kind == "claude" else f"Ollama · {model}"}
+            "summary": _provider_label(kind, model).replace(" (", " · ").rstrip(")")}
 
 
 @app.get("/api/live")

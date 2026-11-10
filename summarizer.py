@@ -143,6 +143,25 @@ def _claude(prompt: str, max_tokens: int = 4000) -> str:
     return "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
 
 
+# ---------------- Cloud proxy ----------------
+
+def _cloud(transcript: str, hint_title: str | None, meeting_id: str | None) -> str:
+    import cloud
+
+    _llm_begin("cloud", "proxy")
+    t0, last = time.time(), None
+    try:
+        text, usage = cloud.summarize(transcript, meeting_id or "unknown", hint_title,
+                                      os.getenv("NOTES_LANGUAGE", "English"))
+        took = time.time() - t0
+        out = usage.get("output_tokens", 0)
+        last = {"output_tokens": out, "prompt_tokens": usage.get("input_tokens", 0),
+                "gen_tok_s": round(out / took, 1) if took else None, "total_sec": round(took, 1)}
+    finally:
+        _llm_end(last)
+    return text
+
+
 # ---------------- Ollama ----------------
 
 def _ollama(prompt: str, as_json: bool = True, model: str | None = None) -> str:
@@ -228,8 +247,9 @@ def _ollama_summarize(transcript: str, hint_title: str | None, model: str | None
 # ---------------- Public API ----------------
 
 def summarize(transcript: str, provider: str = "ollama", hint_title: str | None = None,
-              model: str | None = None) -> dict:
-    """model only applies to Ollama; None uses OLLAMA_MODEL from .env.
+              model: str | None = None, meeting_id: str | None = None) -> dict:
+    """model only applies to Ollama; None uses OLLAMA_MODEL from .env. meeting_id is what the cloud
+    proxy counts against the free tier (re-summarising the same id is free).
     Token usage of the run is available afterwards from last_run_usage()."""
     _run.usage = {"input_tokens": 0, "output_tokens": 0, "calls": 0}
     if not transcript.strip():
@@ -237,6 +257,8 @@ def summarize(transcript: str, provider: str = "ollama", hint_title: str | None 
                 "topics": [], "decisions": [], "action_items": [], "open_questions": []}
     if provider == "ollama":
         data = _ollama_summarize(transcript, hint_title, model)
+    elif provider == "cloud":
+        data = _parse_json(_cloud(transcript, hint_title, meeting_id))
     else:
         data = _parse_json(_claude(_user_prompt(transcript, hint_title)))
     for key in ("topics", "decisions", "action_items", "open_questions"):
