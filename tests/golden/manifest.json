@@ -1,0 +1,59 @@
+{
+  "recordings": [
+    {
+      "duration_sec": 212.4,
+      "words": 722,
+      "name": "monologue-3min",
+      "source_folder": "2026-11-04_195655_meeting",
+      "language": "en",
+      "whisper_model": "mlx-community/whisper-large-v3-turbo",
+      "reference_kind": "silver: machine-made, not human-verified",
+      "created": "2026-11-05",
+      "key_terms": [
+        "agent",
+        "workflow",
+        "prompt",
+        "Anthropic",
+        "Building Effective Agents"
+      ],
+      "expects_action_items": false
+    },
+    {
+      "duration_sec": 43.6,
+      "words": 132,
+      "name": "product-demo-1min",
+      "source_folder": "2026-11-05_162734_meeting",
+      "language": "en",
+      "whisper_model": "mlx-community/whisper-large-v3-turbo",
+      "reference_kind": "silver: machine-made, not human-verified",
+      "created": "2026-11-05",
+      "key_terms": [
+        "beta",
+        "general availability",
+        "Christmas",
+        "inspection",
+        "spreadsheets"
+      ],
+      "expects_action_items": false
+    },
+    {
+      "duration_sec": 1635.9,
+      "words": 3624,
+      "name": "conversation-27min",
+      "source_folder": "2026-11-05_100232_meeting",
+      "language": "en",
+      "whisper_model": "mlx-community/whisper-large-v3-turbo",
+      "reference_kind": "silver: machine-made, not human-verified",
+      "created": "2026-11-05",
+      "key_terms": [
+        "environment",
+        "7.3",
+        "7.4",
+        "EKS",
+        "DevOps",
+        "roll back"
+      ],
+      "expects_action_items": false
+    }
+  ]
+}

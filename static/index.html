@@ -1,0 +1,984 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meeting Notes</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f6f8; --surface: #ffffff; --surface2: #f0f2f5; --border: #e3e6ec; --text: #151922; --muted: #667085;
+    --accent: #4f46e5; --accent-soft: #eceafd; --rec: #e5484d; --rec-soft: #fdecec;
+    --ok: #12a150; --warn: #d98200; --bad: #e5484d; --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0e1116; --surface: #161a22; --surface2: #1d222c; --border: #2a303c; --text: #e8eaf0; --muted: #98a1b3;
+            --accent: #8b93ff; --accent-soft: #232650; --rec: #ff6369; --rec-soft: #3a1c20;
+            --ok: #3dd68c; --warn: #f5a524; --bad: #ff6369; --shadow: 0 1px 2px rgba(0,0,0,.4); }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body { margin: 0; font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Segoe UI", sans-serif;
+         background: var(--bg); color: var(--text); display: grid; grid-template-rows: 56px minmax(0, 1fr); }
+  h1, h2, h3, p { margin: 0; }
+  button, select, input { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- top bar ---------- */
+  .top { display: flex; align-items: center; gap: 16px; padding: 0 20px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 15px; }
+  .brand svg { color: var(--accent); }
+  .spacer { flex: 1; }
+  .health { display: flex; gap: 6px; align-items: center; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px;
+          background: var(--surface2); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .chip.ok::before { background: var(--ok); } .chip.warn::before { background: var(--warn); } .chip.bad::before { background: var(--bad); }
+  .chip.plain::before { display: none; }
+  .chip b { color: var(--text); font-weight: 600; }
+
+  /* ---------- buttons & fields ---------- */
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 14px; border-radius: 10px; cursor: pointer;
+         background: var(--surface); border: 1px solid var(--border); font-weight: 550; white-space: nowrap; }
+  .btn:hover { background: var(--surface2); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.danger:hover { border-color: var(--bad); color: var(--bad); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.rec { background: var(--rec); border-color: var(--rec); color: #fff; }
+  .btn.rec:hover { filter: brightness(1.08); }
+  .btn.dark { background: var(--text); border-color: var(--text); color: var(--bg); }
+  .btn.lg { padding: 12px 22px; font-size: 15px; border-radius: 12px; }
+  .btn.sm { padding: 5px 10px; font-size: 13px; }
+  .btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+  .btn.ghost:hover { background: var(--surface2); color: var(--text); }
+  .btn[aria-expanded="true"] { background: var(--accent-soft); border-color: transparent; color: var(--accent); }
+  label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+  label .opt { font-weight: 400; }
+  select, input[type=text], input[type=search] { width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+  select:hover, input:hover { border-color: var(--muted); }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .hint.warn { color: var(--warn); }
+
+  /* ---------- layout ---------- */
+  .app { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 0; }
+  .perf-open .app { grid-template-columns: 300px minmax(0, 1fr) 330px; }
+  .meetings { display: flex; flex-direction: column; min-height: 0; background: var(--surface); border-right: 1px solid var(--border); }
+  main { overflow-y: auto; min-width: 0; }
+  .perfpanel { display: none; min-height: 0; overflow-y: auto; background: var(--surface); border-left: 1px solid var(--border); padding: 18px 16px; }
+  .perf-open .perfpanel { display: block; }
+
+  /* ---------- meetings list ---------- */
+  .mhead { display: flex; align-items: center; gap: 8px; padding: 16px 16px 8px; }
+  .mhead h2 { font-size: 15px; flex: 1; }
+  .count { font-size: 12px; color: var(--muted); background: var(--surface2); border-radius: 999px; padding: 0 8px; margin-left: 6px; font-weight: 500; }
+  .msearch { padding: 0 16px 8px; }
+  #list { flex: 1; overflow-y: auto; padding: 0 8px 16px; }
+  .group { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 14px 10px 4px; }
+  .item { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; width: 100%; text-align: left; padding: 9px 10px; border: 0; border-radius: 10px;
+          background: none; cursor: pointer; }
+  .item:hover { background: var(--surface2); }
+  .row { position: relative; }
+  .row .del { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); display: none; width: 28px; height: 28px;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--muted); cursor: pointer;
+    font-size: 15px; line-height: 1; padding: 0; }
+  .row .del:hover { color: var(--bad); border-color: var(--bad); }
+  .row:hover .del, .row .del:focus-visible { display: block; }
+  .row:hover .pill { visibility: hidden; }
+  .item.active { background: var(--accent-soft); }
+  .selecting .row .del { display: none !important; }
+  .selecting .row:hover .pill { visibility: visible; }
+  .row .chk { display: none; position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; margin: 0; pointer-events: none; }
+  .selecting .row .chk { display: block; }
+  .selecting .item { padding-left: 38px; }
+  .item.picked { background: var(--accent-soft); }
+  .selbar { display: none; align-items: center; gap: 8px; padding: 0 16px 8px; }
+  .selecting .selbar { display: flex; }
+  .selbar .n { flex: 1; font-size: 12px; color: var(--muted); }
+  .item .t { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .m { grid-column: 1; font-size: 12px; color: var(--muted); }
+  .item .pill { grid-row: 1 / span 2; grid-column: 2; align-self: center; }
+  .pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--surface2); color: var(--muted); white-space: nowrap; }
+  .pill.busy { background: var(--accent-soft); color: var(--accent); }
+  .pill.rec { background: var(--rec-soft); color: var(--rec); }
+  .pill.bad { background: var(--rec-soft); color: var(--bad); }
+  .empty-list { color: var(--muted); text-align: center; padding: 40px 16px; line-height: 1.6; }
+
+  /* ---------- pages ---------- */
+  .page { max-width: 880px; margin: 0 auto; padding: 32px 32px 64px; }
+  .page > h1 { font-size: 24px; letter-spacing: -.01em; }
+  .sub { color: var(--muted); margin: 4px 0 24px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; box-shadow: var(--shadow); }
+  .card + .card { margin-top: 16px; }
+  .card > h3 { font-size: 13px; font-weight: 650; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+  .card > h3 small { font-weight: 400; color: var(--muted); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  .grid2 .card + .card { margin-top: 0; }
+  .field + .field { margin-top: 14px; }
+  .startbar { display: flex; align-items: center; gap: 14px; margin-top: 24px; flex-wrap: wrap; }
+  .startbar .or { color: var(--muted); }
+
+  /* recording */
+  .recbar { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  .rec-status { display: flex; align-items: center; gap: 12px; }
+  .recdot { width: 12px; height: 12px; border-radius: 50%; background: var(--rec); box-shadow: 0 0 0 0 rgba(229,72,77,.5); animation: pulse 1.6s infinite; }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 10px rgba(229,72,77,0); } 100% { box-shadow: 0 0 0 0 rgba(229,72,77,0); } }
+  .rec-label { font-size: 12px; font-weight: 650; color: var(--rec); text-transform: uppercase; letter-spacing: .06em; }
+  .timer { font-size: 34px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .meters { flex: 1; min-width: 220px; display: grid; gap: 8px; }
+  .meter-row { display: grid; grid-template-columns: minmax(80px, 150px) 1fr; gap: 10px; align-items: center; font-size: 12px; color: var(--muted); }
+  .meter-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar { height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--ok); border-radius: 3px; transition: width .2s; }
+  .bar > i.warn { background: var(--warn); } .bar > i.bad { background: var(--bad); }
+  .testrow { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+  .testrow .hint { margin: 0; }
+  #testMeters { margin-top: 10px; min-width: 0; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+  .alert { display: flex; gap: 10px; padding: 12px 14px; border-radius: 12px; margin-top: 14px; border: 1px solid; }
+  .alert.error { background: var(--rec-soft); border-color: var(--rec); color: var(--text); }
+  .alert b { color: var(--bad); }
+  .live-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .live-head h3 { font-size: 13px; font-weight: 650; }
+  .live-head .hint { margin: 0; }
+  #liveText { font-size: 15px; line-height: 1.7; }
+  #liveText p { margin: 0 0 8px; }
+  #liveText .ts { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; margin-right: 8px; }
+  #liveText .who { font-size: 12px; font-weight: 600; margin-right: 8px; color: var(--muted); }
+  #liveText .who.me { color: var(--accent); }
+  #livePartial { color: var(--muted); font-style: italic; }
+  .live-empty { color: var(--muted); }
+
+  /* meeting */
+  .mtop { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .mtop h1 { font-size: 26px; letter-spacing: -.01em; }
+  .meta { color: var(--muted); margin-top: 2px; }
+  .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .actions select { width: auto; max-width: 240px; padding: 5px 10px; font-size: 13px; }
+  .steps { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 12px; }
+  .steps li { display: flex; align-items: center; gap: 12px; color: var(--muted); }
+  .steps .dot { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; font-size: 12px; flex: none; }
+  .steps li.done { color: var(--text); } .steps li.done .dot { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .steps li.active { color: var(--text); font-weight: 600; }
+  .steps li.active .dot { border-color: var(--accent); border-top-color: transparent; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .proc-detail { margin-top: 18px; padding: 10px 14px; background: var(--surface2); border-radius: 10px; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 40px; }
+
+  .doc { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 8px 28px 28px; box-shadow: var(--shadow); }
+  .doc > h1:first-child { display: none; }
+  .doc h2 { font-size: 16px; margin: 28px 0 8px; display: flex; align-items: center; gap: 10px; }
+  .doc h2::before { content: ""; width: 4px; height: 16px; border-radius: 2px; background: var(--accent); }
+  .doc h3 { font-size: 14px; margin: 18px 0 4px; }
+  .doc p { margin: 8px 0; }
+  .doc em:first-of-type { color: var(--muted); }
+  .doc ul { padding-left: 22px; } .doc li { margin: 4px 0; }
+  .doc li:has(> input[type=checkbox]) { list-style: none; margin-left: -22px; }
+  .doc li > input[type=checkbox] { margin-right: 8px; }
+  .doc details { background: var(--surface2); border-radius: 10px; padding: 10px 14px; white-space: pre-wrap; font-size: 13px; }
+  .doc summary { cursor: pointer; font-weight: 600; }
+
+  /* ---------- performance panel ---------- */
+  .perfpanel h2 { font-size: 15px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; }
+  .pcard { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
+  .pcard h3 { font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 10px; }
+  .pcard h3 em { text-transform: none; letter-spacing: 0; font-style: normal; font-weight: 500; color: var(--text); }
+  .gauge + .gauge { margin-top: 10px; }
+  .gauge .row, .kv { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+  .gauge .row { margin-bottom: 4px; } .gauge .row span, .kv span { color: var(--muted); }
+  .gauge .row b, .kv b { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+  .kv { margin-top: 6px; } .gauge + .kv { margin-top: 10px; }
+  .kv b.bad { color: var(--bad); } .kv b.warn { color: var(--warn); }
+  .pnote { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .pnote.bad { color: var(--bad); } .pnote.warn { color: var(--warn); }
+  .big { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+  /* ---------- small screens ---------- */
+  @media (max-width: 1199px) {
+    .perf-open .app { grid-template-columns: 300px minmax(0, 1fr); }
+    .perfpanel { position: fixed; top: 56px; right: 0; bottom: 0; width: 340px; z-index: 20; box-shadow: -12px 0 32px rgba(0,0,0,.18); }
+  }
+  @media (max-width: 860px) {
+    body { grid-template-rows: 56px auto; height: auto; }
+    .app, .perf-open .app { grid-template-columns: minmax(0, 1fr); }
+    .meetings { max-height: 38vh; border-right: 0; border-bottom: 1px solid var(--border); }
+    .grid2 { grid-template-columns: 1fr; } .page { padding: 20px 16px 48px; } .health { display: none; }
+  }
+  dialog#settings { width: min(460px, calc(100vw - 32px)); padding: 22px; border: 1px solid var(--border); border-radius: 14px;
+    background: var(--surface); color: var(--text); box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+  dialog#settings::backdrop { background: rgba(0,0,0,.4); }
+  dialog#settings h3 { margin: 0 0 14px; }
+  dialog#settings .field { margin-bottom: 14px; }
+  dialog#settings input { width: 100%; box-sizing: border-box; }
+  .dlgbtns { display: flex; gap: 8px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
+  .dlgbtns .spacer { flex: 1; }
+  .dlgbtns.tight { margin-top: 8px; }
+  .voice-prompt { margin: 8px 0; padding: 10px 12px; background: var(--surface2); border-radius: 8px; font-size: 14px; line-height: 1.6; }
+  .voice-meter { height: 6px; border-radius: 3px; background: var(--surface2); overflow: hidden; }
+  .voice-meter span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  .hint.ok { color: var(--ok); } .hint.bad { color: var(--bad); }
+  @media (prefers-reduced-motion: reduce) { .recdot, .steps li.active .dot { animation: none; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4"/></svg>
+    Meeting Notes
+  </div>
+  <div class="spacer"></div>
+  <div class="health" id="health" aria-label="Machine load"></div>
+  <button class="btn" id="settingsBtn">Settings</button>
+  <button class="btn" id="perfToggle" aria-expanded="false" aria-controls="perfPanel">Performance</button>
+</header>
+
+<dialog id="settings" aria-labelledby="settingsTitle">
+  <form method="dialog" id="settingsForm">
+    <h3 id="settingsTitle">Settings</h3>
+    <div class="field">
+      <label for="apiKey">Anthropic API key</label>
+      <input id="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+      <div class="hint" id="keyHint"></div>
+    </div>
+    <div class="field">
+      <label for="claudeModel">Claude model</label>
+      <input id="claudeModel" type="text" autocomplete="off" spellcheck="false" placeholder="claude-sonnet-5-5">
+      <div class="hint">Used when Summary is set to Claude API. Sonnet 5.5 costs about 3 cents per 30-minute meeting.</div>
+    </div>
+    <div class="field" id="voiceField">
+      <label>My voice</label>
+      <div class="hint" id="voiceHint"></div>
+      <p class="voice-prompt" id="voicePrompt" hidden></p>
+      <div class="voice-meter" id="voiceMeter" hidden><span id="voiceBar"></span></div>
+      <div class="dlgbtns tight">
+        <button type="button" class="btn" id="voiceStart">Record my voice</button>
+        <button type="button" class="btn primary" id="voiceStop" hidden>Save my voice</button>
+        <button type="button" class="btn" id="voiceCancel" hidden>Cancel</button>
+        <button type="button" class="btn danger" id="voiceDelete" hidden>Remove</button>
+      </div>
+    </div>
+    <div class="hint" id="settingsMsg" role="status"></div>
+    <div class="dlgbtns">
+      <button type="button" class="btn danger" id="keyRemove">Remove key</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="keyTest">Test key</button>
+      <button type="button" class="btn" id="settingsClose">Close</button>
+      <button type="button" class="btn primary" id="settingsSave">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="app">
+  <!-- Meetings -->
+  <aside class="meetings" aria-label="Meetings">
+    <div class="mhead">
+      <h2>Meetings<span class="count" id="count">0</span></h2>
+      <button class="btn sm" id="selBtn">Select</button>
+      <button class="btn primary sm" id="newBtn">+ New</button>
+    </div>
+    <div class="selbar">
+      <span class="n" id="selCount">0 selected</span>
+      <button class="btn sm" id="selAll">Select all</button>
+      <button class="btn sm danger" id="selDelete" disabled>Delete</button>
+    </div>
+    <div class="msearch"><input type="search" id="search" placeholder="Search meetings" aria-label="Search meetings"></div>
+    <div id="list"></div>
+  </aside>
+
+  <main id="main">
+    <!-- New meeting: all configuration lives here -->
+    <section id="v-new" class="page">
+      <h1>New meeting</h1>
+      <p class="sub">Choose what to record and which models to use, then start.</p>
+
+      <div class="card">
+        <label for="title">Meeting title <span class="opt">(optional)</span></label>
+        <input id="title" type="text" placeholder="e.g. QA strategy sync" autocomplete="off">
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <h3>Audio sources</h3>
+          <div class="field"><label for="mic">Microphone</label><select id="mic"></select></div>
+          <div class="field"><label for="sys">System audio <span class="opt">(Zoom / Teams / Meet)</span></label>
+            <select id="sys"><option value="">None</option></select></div>
+          <div class="hint" id="hint"></div>
+          <div class="testrow"><button class="btn sm" id="testBtn" type="button">Test audio</button>
+            <span class="hint" id="testHint">Check both inputs before you start.</span></div>
+          <div class="meters" id="testMeters" aria-live="polite"></div>
+        </div>
+        <div class="card">
+          <h3>Models</h3>
+          <div class="field"><label for="stt">Speech to text</label><select id="stt"></select><div class="hint" id="sttHint"></div></div>
+          <div class="field"><label for="provider">Summary</label><select id="provider"><option value="ollama">Loading…</option></select><div class="hint" id="providerHint"></div></div>
+        </div>
+      </div>
+
+      <div class="startbar">
+        <button class="btn rec lg" id="recBtn">● Start recording</button>
+        <span class="or">or</span>
+        <input type="file" id="file" accept="audio/*,video/*" hidden>
+        <button class="btn" id="uploadBtn">Upload a recording…</button>
+      </div>
+    </section>
+
+    <!-- Recording -->
+    <section id="v-rec" class="page" hidden>
+      <div class="card recbar">
+        <div class="rec-status"><span class="recdot"></span>
+          <div><div class="rec-label">Recording</div><div class="timer" id="timer">00:00</div></div></div>
+        <div class="meters" id="meters"></div>
+        <button class="btn dark lg" id="stopBtn">■ Stop &amp; summarise</button>
+      </div>
+      <div class="alert error" id="noAudio" hidden><div><b>No sound is coming in.</b> Stop, pick your real microphone
+        (not Teams or Zoom Audio), check the Microphone permission for your terminal, then record again.</div></div>
+      <div class="chips" id="recChips"></div>
+      <section class="card">
+        <div class="live-head"><h3>Live transcript</h3><span class="hint" id="liveStatus"></span></div>
+        <div id="liveText" aria-live="polite"><p id="livePartial"></p></div>
+      </section>
+    </section>
+
+    <!-- A saved meeting: processing, error or notes -->
+    <section id="v-meeting" class="page" hidden></section>
+  </main>
+
+  <!-- Performance -->
+  <aside class="perfpanel" id="perfPanel" aria-label="Performance">
+    <h2>Performance <button class="btn ghost sm" id="perfClose" aria-label="Close performance panel">✕</button></h2>
+    <div id="perf"><p class="pnote">Collecting…</p></div>
+  </aside>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const main = $('#main');
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+const fmtN = n => n == null ? '–' : Number(n).toLocaleString();
+
+let config = {}, items = [], status = {}, metrics = null;
+let picked = new Set(), selecting = false;
+let selected = null, view = 'new', wasRecording = false, lastJobs = '', liveCount = 0, liveBusy = false, search = '';
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  const ct = r.headers.get('content-type') || '';
+  return ct.includes('json') ? r.json() : r.text();
+}
+function fmt(sec) {
+  sec = Math.floor(sec);
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60, p = n => String(n).padStart(2, '0');
+  return h ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`;
+}
+const level = pct => pct >= 90 ? 'bad' : pct >= 70 ? 'warn' : 'ok';
+
+/* ---------------- navigation ---------------- */
+function setView(v) {
+  if (v !== view) main.scrollTop = 0;
+  view = v;
+  if (v !== 'new' && testTimer) stopTest();
+  for (const n of ['new', 'rec', 'meeting']) $('#v-' + n).hidden = n !== v;
+}
+function setHash(id) { history.replaceState(null, '', id ? '#' + id : location.pathname); }
+
+function openNew() {
+  selected = status.recording ? status.current : null;
+  setHash(selected);
+  setView(status.recording ? 'rec' : 'new');
+  renderList();
+}
+function openMeeting(id) {
+  selected = id; setHash(id);
+  if (status.recording && id === status.current) setView('rec');
+  else { setView('meeting'); renderMeeting(); }
+  renderList();
+}
+
+/* ---------------- meetings list ---------------- */
+const timeOf = id => `${id.slice(11, 13)}:${id.slice(13, 15)}`;
+const friendly = m => (m.title && m.title !== m.id) ? m.title : `Meeting ${timeOf(m.id)}`;
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+function pill(m) {
+  const s = m.stage || '';
+  if (s === 'recording') return '<span class="pill rec">Recording</span>';
+  if (s === 'error') return '<span class="pill bad">Failed</span>';
+  if (s === 'saving audio') return '<span class="pill busy">Saving</span>';
+  if (s === 'transcribing') return '<span class="pill busy">Transcribing</span>';
+  if (s === 'labelling speakers') return '<span class="pill busy">Labelling speakers</span>';
+  if (s.startsWith('summarising') || s === 'queued') return '<span class="pill busy">Summarising</span>';
+  if (!m.has_notes) return '<span class="pill">No notes</span>';
+  return '';
+}
+
+function renderList() {
+  const q = search.trim().toLowerCase();
+  const list = items.filter(m => !q || friendly(m).toLowerCase().includes(q));
+  $('#count').textContent = items.length;
+  updateSelUi(list);
+  if (!list.length) {
+    $('#list').innerHTML = `<div class="empty-list">${items.length ? 'No meetings match your search.' : 'No meetings yet.<br>Record or upload one to get started.'}</div>`;
+    return;
+  }
+  const today = ymd(new Date()), yest = ymd(new Date(Date.now() - 864e5));
+  let html = '', last = null;
+  for (const m of list) {
+    const d = m.id.slice(0, 10), g = d === today ? 'Today' : d === yest ? 'Yesterday' : 'Earlier';
+    if (g !== last) { html += `<div class="group">${g}</div>`; last = g; }
+    const on = picked.has(m.id);
+    html += `<div class="row"><input type="checkbox" class="chk" tabindex="-1" aria-hidden="true" ${on ? 'checked' : ''}>
+      <button class="item ${on ? 'picked' : m.id === selected ? 'active' : ''}" data-id="${esc(m.id)}" ${selecting ? `aria-pressed="${on}"` : ''}>
+      <span class="t">${esc(friendly(m))}</span>
+      <span class="m">${g === 'Earlier' ? esc(d.slice(5)) + ' · ' : ''}${timeOf(m.id)}${m.duration ? ' · ' + esc(m.duration) : ''}</span>${pill(m)}</button>
+      <button class="del" data-del="${esc(m.id)}" title="Delete (moves to Trash)" aria-label="Delete meeting">🗑</button></div>`;
+  }
+  $('#list').innerHTML = html;
+}
+function updateSelUi(list) {
+  document.querySelector('.meetings').classList.toggle('selecting', selecting);
+  $('#selBtn').textContent = selecting ? 'Cancel' : 'Select';
+  $('#selCount').textContent = `${picked.size} selected`;
+  $('#selDelete').disabled = !picked.size;
+  $('#selDelete').textContent = picked.size ? `Delete (${picked.size})` : 'Delete';
+  const vis = list || items;
+  $('#selAll').textContent = vis.length && vis.every(m => picked.has(m.id)) ? 'Clear' : 'Select all';
+}
+function setSelecting(on) { selecting = on; picked.clear(); renderList(); }
+function visibleItems() {
+  const q = search.trim().toLowerCase();
+  return items.filter(m => !q || friendly(m).toLowerCase().includes(q));
+}
+async function deleteSelected() {
+  const ids = [...picked];
+  if (!ids.length) return;
+  if (!confirm(`Delete ${ids.length} meeting${ids.length > 1 ? 's' : ''}?\n\nThe folders (audio, transcript and notes) are moved to the Trash.`)) return;
+  const failed = [];
+  for (const id of ids) {
+    try { await api(`/api/meetings/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
+    catch (e) { const m = items.find(x => x.id === id); failed.push(`${m ? friendly(m) : id}: ${e.message}`); }
+  }
+  picked.clear();
+  await refreshList();
+  if (selected && !items.some(m => m.id === selected)) openNew();
+  if (failed.length) alert(`Could not delete ${failed.length}:\n\n${failed.join('\n')}`);
+  else setSelecting(false);
+}
+async function refreshList() { items = await api('/api/meetings'); renderList(); }
+
+/* ---------------- a saved meeting ---------------- */
+function render(md) {
+  if (window.marked && window.DOMPurify) return DOMPurify.sanitize(marked.parse(md));
+  return `<pre style="white-space:pre-wrap">${esc(md)}</pre>`;
+}
+
+function mtop(m, withActions) {
+  const meta = [m.date, m.duration].filter(Boolean).join(' · ');
+  let actions = '';
+  if (withActions) {
+    const cur = $('#provider').value;
+    const opts = [...$('#provider').options].map(o => `<option value="${esc(o.value)}" ${o.value === cur ? 'selected' : ''}>${esc(o.text)}</option>`).join('');
+    actions = `<div class="actions">
+      <select id="resumeModel" aria-label="Summary model for re-summarising">${opts}</select>
+      <button class="btn" id="btnResum">Re-summarise</button>
+      <button class="btn" id="btnCopy" ${m.has_notes ? '' : 'disabled'}>Copy Markdown</button>
+      <button class="btn" id="btnReveal">Show in Finder</button>
+      <button class="btn danger" id="btnDelete">Delete</button></div>`;
+  }
+  return `<div class="mtop"><div><h1>${esc(friendly(m))}</h1><div class="meta">${esc(meta)}</div></div>${actions}</div>`;
+}
+
+async function deleteMeeting(id) {
+  const m = items.find(x => x.id === id);
+  if (!confirm(`Delete “${m ? friendly(m) : id}”?\n\nThe folder (audio, transcript and notes) is moved to the Trash.`)) return;
+  try {
+    await api(`/api/meetings/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await refreshList();
+    if (selected === id) openNew();
+  } catch (e) { alert(e.message); }
+}
+
+function wireActions(id) {
+  const resum = $('#btnResum'); if (!resum) return;
+  resum.onclick = async () => {
+    resum.disabled = true;
+    try {
+      await api(`/api/meetings/${encodeURIComponent(id)}/summarize`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: $('#resumeModel').value }) });
+      await refreshList(); renderMeeting();
+    } catch (e) { alert(e.message); resum.disabled = false; }
+  };
+  $('#btnCopy').onclick = async () => {
+    await navigator.clipboard.writeText(window._md || '');
+    const b = $('#btnCopy'); b.textContent = 'Copied ✓'; setTimeout(() => { b.textContent = 'Copy Markdown'; }, 1500);
+  };
+  $('#btnReveal').onclick = () => api(`/api/meetings/${encodeURIComponent(id)}/reveal`, { method: 'POST' });
+  $('#btnDelete').onclick = () => deleteMeeting(id);
+}
+
+function processingHtml(m) {
+  const s = m.stage || '';
+  const idx = s === 'saving audio' ? 0 : s === 'transcribing' ? 1 : 2;
+  const steps = [['Saving audio', ''], ['Transcribing', ''], ['Summarising', idx === 2 ? s.replace(/^summarising with /, 'with ') : '']];
+  return `<div class="card"><h3>Processing <small>You can leave this page; it keeps going.</small></h3>
+    <ol class="steps">${steps.map(([label, sub], i) => `<li class="${i < idx ? 'done' : i === idx ? 'active' : ''}">
+      <span class="dot">${i < idx ? '✓' : ''}</span><span>${label}${sub ? ` <small style="color:var(--muted);font-weight:400">${esc(sub)}</small>` : ''}</span></li>`).join('')}</ol>
+    <div class="proc-detail" id="procDetail"></div></div>`;
+}
+function updateProcessingDetail() {
+  const el = $('#procDetail'), l = metrics && metrics.llm;
+  if (!el || !l) return;
+  if (l.active) el.textContent = l.waiting_first_token ? `Reading the transcript… ${l.elapsed}s`
+      : `Writing notes · ${fmtN(l.tokens)} tokens${l.tok_s ? ' · ' + l.tok_s + ' tok/s' : ''} · ${l.elapsed}s`;
+  else el.textContent = (items.find(x => x.id === selected) || {}).stage === 'transcribing' ? 'Finishing the last part of the transcript…' : '';
+}
+
+async function renderMeeting(quiet) {
+  const id = selected, m = items.find(x => x.id === id), box = $('#v-meeting');
+  if (!m) { box.innerHTML = '<div class="card">Meeting not found.</div>'; return; }
+  if (m.stage === 'error') {
+    box.innerHTML = mtop(m, true) + `<div class="alert error"><div><b>Processing failed.</b>
+      <div style="white-space:pre-wrap;margin-top:4px">${esc(m.error || '')}</div>
+      <div class="hint">The audio is kept. Fix the problem (API key, Ollama running…), pick a model above and press Re-summarise.</div></div></div>`;
+    wireActions(id); return;
+  }
+  if (m.stage && m.stage !== 'done' && !m.has_notes) { box.innerHTML = mtop(m, false) + processingHtml(m); updateProcessingDetail(); return; }
+  if (!m.has_notes) {
+    box.innerHTML = mtop(m, true) + `<div class="card">No notes for this meeting yet. Choose a model above and press Re-summarise.</div>`;
+    wireActions(id); return;
+  }
+  try {
+    const md = await api(`/api/meetings/${encodeURIComponent(id)}`);
+    if (selected !== id) return;
+    window._md = md;
+    box.innerHTML = mtop(m, true) + `<article class="doc">${render(md)}</article>`;
+    wireActions(id);
+  } catch (e) { if (!quiet) box.innerHTML = mtop(m, false) + `<div class="alert error"><div>${esc(e.message)}</div></div>`; }
+}
+
+/* ---------------- settings: devices, speech-to-text, summary model ---------------- */
+async function loadDevices() {
+  try {
+    const devs = await api('/api/devices');
+    // Remembered by name: device indexes shift whenever a device (iPhone mic, AirPods…) comes or goes.
+    let saved = {}; try { saved = JSON.parse(lsGet('deviceChoice') || '{}'); } catch {}
+    const byName = n => devs.find(d => d.name === n);
+    const mic = $('#mic'), sys = $('#sys');
+    mic.innerHTML = ''; sys.innerHTML = '<option value="">None</option>';
+    for (const d of devs) { mic.add(new Option(d.name, d.index)); sys.add(new Option(d.name, d.index)); }
+    const blackhole = devs.find(d => /blackhole/i.test(d.name));
+    const defMic = devs.find(d => /macbook/i.test(d.name)) || devs.find(d => /microphone/i.test(d.name) && !/blackhole/i.test(d.name));
+    mic.value = byName(saved.mic)?.index ?? (defMic ? defMic.index : devs[0]?.index);
+    sys.value = saved.sys === '' ? '' : (byName(saved.sys)?.index ?? (blackhole ? blackhole.index : ''));
+    $('#hint').textContent = blackhole ? '' : 'BlackHole not found: only your microphone will be recorded, not other participants. See the README.';
+    $('#hint').className = 'hint' + (blackhole ? '' : ' warn');
+  } catch (e) { $('#hint').textContent = 'Cannot list audio devices: ' + e.message; $('#hint').className = 'hint warn'; }
+}
+
+function loadStt() {
+  const sel = $('#stt'), engines = [...config.stt_models];
+  if (!engines.some(e => e.id === config.default_stt)) engines.push({ id: config.default_stt, label: config.default_stt });
+  sel.innerHTML = '';
+  for (const e of engines) sel.add(new Option(e.label, e.id));
+  const saved = lsGet('stt');
+  sel.value = engines.some(e => e.id === saved) ? saved : config.default_stt;
+  sttHint();
+}
+function sttHint() {
+  $('#sttHint').textContent = $('#stt').value.startsWith('parakeet')
+    ? 'English only. Ignores the custom vocabulary. First use downloads about 2.5 GB.' : '';
+}
+// Remember a device only when the user picks it, so defaults (like BlackHole once installed) keep applying.
+function saveDeviceChoice() {
+  const name = sel => sel.value === '' ? '' : sel.selectedOptions[0].text;
+  let c = {}; try { c = JSON.parse(lsGet('deviceChoice') || '{}'); } catch {}
+  lsSet('deviceChoice', JSON.stringify({ ...c, ...(this === $('#mic') ? { mic: name($('#mic')) } : { sys: name($('#sys')) }) }));
+}
+function onDeviceChange() { saveDeviceChoice.call(this); if (testTimer) startTest(); }
+$('#mic').onchange = onDeviceChange; $('#sys').onchange = onDeviceChange;
+
+$('#stt').onchange = () => { lsSet('stt', $('#stt').value); sttHint(); };
+
+function providerLabel() { const o = $('#provider').selectedOptions[0]; return o ? o.text.replace(/^Ollama · /, '') : ''; }
+async function loadProviders() {
+  const sel = $('#provider');
+  const saved = sel.dataset.ready ? sel.value : lsGet('provider');   // keep the user's choice on refresh
+  let models = [], running = true;
+  try { const r = await api('/api/ollama/models'); models = r.models; running = r.running; } catch {}
+  sel.innerHTML = '';
+  sel.add(new Option(config.claude_ready ? 'Claude API' : 'Claude API (no API key set)', 'claude'));
+  for (const m of models) sel.add(new Option(`Ollama · ${m.name} (${m.size_gb} GB)`, `ollama:${m.name}`));
+  if (!models.length) sel.add(new Option('Ollama (not running, or no models installed)', 'ollama'));
+  const has = v => [...sel.options].some(o => o.value === v);
+  const envDefault = `ollama:${config.ollama_model}`;
+  const candidates = [saved === 'ollama' ? `ollama:${config.ollama_model}` : saved, envDefault, `ollama:${config.ollama_model}`]
+    .filter(v => v && has(v) && (v !== 'claude' || config.claude_ready));
+  const firstOllama = [...sel.options].find(o => o.value.startsWith('ollama'));
+  sel.value = candidates[0] || (firstOllama ? firstOllama.value : 'ollama');
+  sel.dataset.ready = '1';
+  providerHint(running);
+}
+function providerHint(running) {
+  const h = $('#providerHint'), v = $('#provider').value;
+  let msg = '';
+  if (running === false) msg = 'Ollama is not running. Start it with “ollama serve”, or use Claude.';
+  else if (v === 'claude' && !config.claude_ready) msg = 'Claude needs an API key: add it under Settings.';
+  else if (v === 'claude') msg = 'Sends the transcript to Anthropic. Check your company policy.';
+  else if (v.startsWith('ollama')) msg = 'Runs on this Mac. Nothing leaves your machine.';
+  h.textContent = msg; h.className = 'hint' + (running === false ? ' warn' : '');
+}
+$('#provider').onchange = () => { lsSet('provider', $('#provider').value); providerHint(); };
+window.addEventListener('focus', () => { if (!wasRecording && config.notes_dir) loadProviders(); });  // pick up newly pulled models
+
+/* ---------------- settings (Anthropic API key) ---------------- */
+const post = (path, body) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+function settingsMsg(text, cls = '') { const m = $('#settingsMsg'); m.textContent = text; m.className = 'hint ' + cls; }
+function showSettings(s) {
+  $('#keyHint').textContent = s.has_key ? `Saved key: ${s.key_hint}. Leave the field empty to keep it.` : 'No key saved. Stored only in the local .env file on this Mac.';
+  $('#keyRemove').hidden = !s.has_key;
+  $('#claudeModel').value = s.claude_model;
+  $('#apiKey').value = '';
+}
+$('#settingsBtn').onclick = async () => {
+  settingsMsg('');
+  try { showSettings(await api('/api/settings')); } catch (e) { settingsMsg(e.message, 'bad'); }
+  $('#settings').showModal();
+  voiceRefresh();
+};
+$('#settingsClose').onclick = () => $('#settings').close();
+$('#settingsSave').onclick = async () => {
+  const body = { claude_model: $('#claudeModel').value };
+  if ($('#apiKey').value.trim()) body.anthropic_api_key = $('#apiKey').value;
+  try {
+    showSettings(await post('/api/settings', body));
+    config = await api('/api/config'); await loadProviders();
+    settingsMsg('Saved.', 'ok');
+  } catch (e) { settingsMsg(e.message, 'bad'); }
+};
+$('#keyTest').onclick = async () => {
+  settingsMsg('Testing…');
+  try { await post('/api/settings/test', { anthropic_api_key: $('#apiKey').value }); settingsMsg('Key works.', 'ok'); }
+  catch (e) { settingsMsg(e.message, 'bad'); }
+};
+$('#keyRemove').onclick = async () => {
+  if (!confirm('Remove the saved Anthropic API key?')) return;
+  try {
+    showSettings(await post('/api/settings', { anthropic_api_key: '' }));
+    config = await api('/api/config'); await loadProviders();
+    settingsMsg('Key removed.', 'ok');
+  } catch (e) { settingsMsg(e.message, 'bad'); }
+};
+
+/* ---------------- my voice (voiceprint enrolment, in Settings) ---------------- */
+const VOICE_TEXT = 'Please read this aloud at your normal speaking pace, close to the microphone. '
+  + 'Today we are reviewing the plan for the migration, the risks to our customers, and who owns each action. '
+  + 'I think the timeline is realistic, but we should agree on a rollback plan before we start. '
+  + 'Let me know if anything is unclear, otherwise I will send a summary of the decisions after the meeting.';
+const VOICE_MIN_SEC = 25;
+let voiceTimer = null;
+function voiceShow(v) {
+  const sampling = !!v.sampling;
+  $('#voiceStart').hidden = sampling; $('#voiceStop').hidden = !sampling; $('#voiceCancel').hidden = !sampling;
+  $('#voiceDelete').hidden = sampling || !v.enrolled;
+  $('#voicePrompt').hidden = !sampling; $('#voiceMeter').hidden = !sampling;
+  $('#voiceStart').textContent = v.enrolled ? 'Record again' : 'Record my voice';
+  if (sampling) {
+    $('#voicePrompt').textContent = VOICE_TEXT;
+    $('#voiceBar').style.width = Math.min(100, v.sampling.level * 400) + '%';
+    const left = Math.max(0, Math.ceil(VOICE_MIN_SEC - v.sampling.seconds));
+    $('#voiceStop').disabled = left > 0;
+    $('#voiceHint').textContent = left > 0 ? `Recording from ${v.sampling.device}… ${Math.round(v.sampling.seconds)} s. Keep reading, at least ${left} s more.`
+      : `Recording… ${Math.round(v.sampling.seconds)} s. Press Save when you are done.`;
+  } else {
+    $('#voiceHint').textContent = v.enrolled
+      ? `Your voice is saved on this Mac (recorded ${new Date(v.created * 1000).toLocaleDateString()}). Lines you speak are labelled Me even with the mic muted or no headphones.`
+      : 'Optional. Record about 30 seconds so the app can recognise your voice in meetings. Kept only on this Mac.';
+  }
+}
+function voicePoll(on) {
+  clearInterval(voiceTimer); voiceTimer = null;
+  if (on) voiceTimer = setInterval(async () => { try { voiceShow(await api('/api/voice')); } catch {} }, 400);
+}
+async function voiceRefresh() {
+  try { const v = await api('/api/voice'); voiceShow(v); voicePoll(!!v.sampling); }
+  catch (e) { $('#voiceHint').textContent = e.message; }
+}
+$('#voiceStart').onclick = async () => {
+  settingsMsg('Preparing the speaker model (first time only)…');
+  try { voiceShow(await post('/api/voice/start', { device: Number($('#mic').value) })); voicePoll(true); settingsMsg(''); }
+  catch (e) { settingsMsg(e.message, 'bad'); }
+};
+$('#voiceStop').onclick = async () => {
+  voicePoll(false); settingsMsg('Saving your voice…');
+  try { voiceShow(await post('/api/voice/stop', {})); settingsMsg('Voice saved.', 'ok'); }
+  catch (e) { settingsMsg(e.message, 'bad'); await voiceRefresh(); }
+};
+$('#voiceCancel').onclick = async () => { voicePoll(false); try { voiceShow(await post('/api/voice/cancel', {})); } catch {} };
+$('#voiceDelete').onclick = async () => {
+  if (!confirm('Remove your saved voice from this Mac?')) return;
+  try { voiceShow(await api('/api/voice', { method: 'DELETE' })); settingsMsg('Voice removed.', 'ok'); } catch (e) { settingsMsg(e.message, 'bad'); }
+};
+$('#settings').addEventListener('close', () => {   // closing the dialog must not leave the mic open
+  if (voiceTimer) { voicePoll(false); post('/api/voice/cancel', {}).catch(() => {}); }
+});
+
+/* ---------------- test audio (shows the level of each chosen input, records nothing) ---------------- */
+let testTimer = null;
+const TEST_HINT = 'Check both inputs before you start.';
+async function startTest() {
+  const devices = [$('#mic').value, $('#sys').value].filter(v => v !== '').map(Number);
+  if (!devices.length) { $('#testHint').textContent = 'Choose a microphone first.'; return; }
+  try {
+    await api('/api/monitor/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ devices }) });
+  } catch (e) { $('#testHint').textContent = e.message; return; }
+  $('#testBtn').textContent = 'Stop test';
+  clearInterval(testTimer); testTimer = setInterval(pollTest, 250); pollTest();
+}
+async function stopTest(skipServer) {
+  clearInterval(testTimer); testTimer = null;
+  $('#testBtn').textContent = 'Test audio'; $('#testMeters').innerHTML = ''; $('#testHint').textContent = TEST_HINT;
+  if (!skipServer) { try { await api('/api/monitor/stop', { method: 'POST' }); } catch {} }
+}
+async function pollTest() {
+  let r; try { r = await api('/api/monitor'); } catch { return; }
+  if (!testTimer) return;
+  if (!r.active) { stopTest(true); return; }          // the server ends a forgotten test after a minute
+  $('#testMeters').innerHTML = r.levels.map(l => `<div class="meter-row"><span title="${esc(l.name)}">${esc(l.name)}</span>
+    <div class="bar"><i class="${l.heard || r.seconds < 3 ? '' : 'warn'}" style="width:${Math.min(100, l.level * 600)}%"></i></div></div>`).join('');
+  const silent = r.levels.filter(l => !l.heard);
+  $('#testHint').textContent = !silent.length ? '✓ Every input hears sound.'
+    : r.seconds < 3 ? 'Listening… speak, and play some audio in Teams.'
+    : `No sound yet on ${silent.map(l => l.name).join(', ')}. Speak, and play audio in Teams.`;
+}
+$('#testBtn').onclick = () => testTimer ? stopTest() : startTest();
+
+/* ---------------- recording ---------------- */
+$('#recBtn').onclick = async () => {
+  const btn = $('#recBtn'); btn.disabled = true;
+  try {
+    if ($('#mic').value === '') throw new Error('Choose a microphone first.');
+    await stopTest();
+    const devices = [$('#mic').value, $('#sys').value].filter(v => v !== '').map(Number);
+    lsSet('provider', $('#provider').value); lsSet('stt', $('#stt').value);
+    await api('/api/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ devices, title: $('#title').value || null, provider: $('#provider').value, stt: $('#stt').value }) });
+    $('#title').value = '';
+    await poll();
+  } catch (e) { alert(e.message); }
+  btn.disabled = false;
+};
+
+$('#stopBtn').onclick = async () => {
+  const btn = $('#stopBtn'); btn.disabled = true;
+  try {
+    const { id } = await api('/api/stop', { method: 'POST' });
+    wasRecording = false; status.recording = false; document.title = 'Meeting Notes';
+    await refreshList(); openMeeting(id);
+  } catch (e) { alert(e.message); }
+  btn.disabled = false;
+};
+
+$('#uploadBtn').onclick = () => $('#file').click();
+$('#file').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const fd = new FormData();
+  fd.append('file', f); fd.append('title', $('#title').value || ''); fd.append('provider', $('#provider').value); fd.append('stt', $('#stt').value);
+  try { const { id } = await api('/api/upload', { method: 'POST', body: fd }); $('#title').value = ''; await refreshList(); openMeeting(id); }
+  catch (err) { alert(err.message); }
+  e.target.value = '';
+};
+
+function startedRecording(s) {
+  liveCount = 0;
+  $('#liveText').innerHTML = '<p class="live-empty" id="liveEmpty">Listening… the first words appear in a few seconds.</p><p id="livePartial"></p>';
+  selected = s.current; setHash(s.current); setView('rec'); renderList();
+}
+function updateRecording(s) {
+  $('#timer').textContent = fmt(s.elapsed);
+  document.title = `● ${fmt(s.elapsed)} · Meeting Notes`;
+  $('#meters').innerHTML = s.levels.map(l =>
+    `<div class="meter-row"><span title="${esc(l.name)}">${esc(l.name)}</span><div class="bar"><i style="width:${Math.min(100, l.level * 600)}%"></i></div></div>`).join('');
+  $('#noAudio').hidden = !s.no_audio;
+  const ses = s.session;
+  $('#recChips').innerHTML = ses ? `<span class="chip plain">Speech to text: <b>${esc(ses.stt)}</b></span>
+    <span class="chip plain">Summary: <b>${esc(ses.summary)}</b></span>` : '';
+  $('#liveStatus').textContent = !s.live ? 'Live transcription is off; the recording is transcribed after you stop.'
+    : s.live.error ? 'Live transcription failed; the full recording will be transcribed after you stop.'
+    : `Final text up to ${fmt(s.live.transcribed)}. Grey text is a draft and may change.`;
+}
+
+async function poll() {
+  let s; try { s = await api('/api/status'); } catch { return; }
+  status = s;
+  if (s.recording && !wasRecording) startedRecording(s);
+  if (!s.recording && wasRecording && view === 'rec') { wasRecording = false; document.title = 'Meeting Notes'; selected ? openMeeting(selected) : openNew(); }
+  wasRecording = s.recording;
+  if (s.recording) updateRecording(s);
+  const jobs = JSON.stringify(s.jobs);
+  if (jobs !== lastJobs) { lastJobs = jobs; await refreshList(); if (view === 'meeting' && selected) renderMeeting(true); }
+}
+
+// "Me" / "Others" tag in front of a caption; empty when the recorder cannot tell (no mic + BlackHole pair).
+function whoTag(speaker) {
+  const s = document.createElement('span');
+  if (!speaker) return s;
+  s.className = 'who' + (speaker === 'Me' ? ' me' : ''); s.textContent = speaker;
+  return s;
+}
+
+// Fetched on its own, faster timer so draft captions feel immediate.
+async function fetchLive() {
+  if (!wasRecording || view !== 'rec' || liveBusy) return;
+  liveBusy = true;
+  try {
+    const r = await api(`/api/live?after=${liveCount}`);
+    const box = $('#liveText'), draft = $('#livePartial');
+    if (!draft) return;
+    const near = main.scrollHeight - main.scrollTop - main.clientHeight < 120;
+    for (const seg of r.segments) {
+      const p = document.createElement('p');
+      const ts = document.createElement('span'); ts.className = 'ts'; ts.textContent = fmt(seg.start);
+      p.append(ts, whoTag(seg.speaker), document.createTextNode(seg.text));   // text nodes: the transcript is never interpreted as HTML
+      box.insertBefore(p, draft);
+    }
+    liveCount += r.segments.length;
+    const text = r.partial && r.partial.text ? r.partial.text : '';
+    draft.replaceChildren();
+    if (text) { const ts = document.createElement('span'); ts.className = 'ts'; ts.textContent = fmt(r.partial.start); draft.append(ts, whoTag(r.partial.speaker), document.createTextNode(text)); }
+    if (liveCount || text) $('#liveEmpty')?.remove();
+    if (near && (r.segments.length || text)) main.scrollTop = main.scrollHeight;
+  } catch {} finally { liveBusy = false; }
+}
+
+/* ---------------- performance ---------------- */
+function gauge(label, text, pct) {
+  return `<div class="gauge"><div class="row"><span>${label}</span><b>${text}</b></div>
+    <div class="bar"><i class="${level(pct)}" style="width:${Math.max(0, Math.min(100, pct))}%"></i></div></div>`;
+}
+const kv = (k, v, cls = '') => `<div class="kv"><span>${k}</span><b class="${cls}">${v}</b></div>`;
+const pcard = (title, body, sub) => `<section class="pcard"><h3>${title}${sub ? ` · <em>${esc(sub)}</em>` : ''}</h3>${body}</section>`;
+
+function renderHealth(s) {
+  if (!s || s.cpu == null) { $('#health').innerHTML = ''; return; }
+  const ram = 100 * s.ram_used_gb / s.ram_total_gb, gpu = s.gpu && s.gpu.util != null ? s.gpu.util : null;
+  $('#health').innerHTML =
+    `<span class="chip ${level(s.cpu)}">CPU <b>${s.cpu.toFixed(0)}%</b></span>
+     <span class="chip ${level(ram)}">RAM <b>${s.ram_used_gb}/${s.ram_total_gb} GB</b></span>` +
+    (gpu != null ? `<span class="chip ${level(gpu)}">GPU <b>${gpu}%</b></span>` : '') +
+    (memBad(s) ? `<span class="chip ${s.mem_status}">Memory <b>${memLabel(s)}</b></span>` : '');
+}
+
+// The RAM warning follows what is happening now (macOS memory pressure, swap traffic), not swap used:
+// that only shows an earlier squeeze and stays high until those apps quit, even with RAM to spare.
+const memBad = s => s.mem_status === 'warn' || s.mem_status === 'bad';
+const memLabel = s => s.swap_mb_s >= 2 ? `swapping ${s.swap_mb_s} MB/s` : `${s.mem_pressure || 'tight'} pressure`;
+const memCls = s => memBad(s) ? s.mem_status : '';
+
+function renderPerf(m) {
+  const s = m.system || {}, w = m.whisper, l = m.llm || {}, o = m.ollama;
+  let mac = '<p class="pnote">Collecting…</p>';
+  if (s.cpu != null) {
+    mac = gauge('CPU', `${s.cpu.toFixed(0)}%`, s.cpu)
+        + gauge('RAM', `${s.ram_used_gb} / ${s.ram_total_gb} GB`, 100 * s.ram_used_gb / s.ram_total_gb)
+        + (s.gpu && s.gpu.util != null ? gauge('GPU', `${s.gpu.util}%`, s.gpu.util) : '')
+        + (s.mem_pressure ? kv('Memory pressure', esc(s.mem_pressure), s.mem_pressure !== 'normal' ? memCls(s) : '') : '')
+        + (s.swap_mb_s != null ? kv('Swapping now', `${s.swap_mb_s} MB/s`, s.swap_mb_s >= 2 ? memCls(s) : '') : '')
+        + kv('Swap used', `${s.swap_used_gb} GB`)
+        + kv('This app', `${s.app_rss_gb} GB`)
+        + kv('Thermal', esc(s.thermal || '–'), s.thermal && s.thermal !== 'normal' ? 'warn' : '')
+        + (s.battery ? kv('Power', `${s.battery.percent}% ${s.battery.plugged ? 'plugged in' : 'on battery'}`, !s.battery.plugged ? 'warn' : '') : '')
+        + (s.mem_status === 'bad' ? '<p class="pnote bad">Short of RAM: the Mac is swapping heavily. Close apps or choose a smaller model.</p>'
+           : s.mem_status === 'warn' ? '<p class="pnote warn">RAM is tight. If things slow down, close apps or choose a smaller model.</p>' : '');
+  }
+  let stt = '<p class="pnote">Starts when you record.</p>';
+  if (w && (w.partial_runs || w.final_runs)) {
+    // the first runs include loading the model, so wait for a steadier reading before quoting a speed
+    const x = w.final_rtf || (w.partial_runs >= 3 ? w.last_partial_rtf : null);
+    stt = `<div class="big">${x ? (1 / x).toFixed(1) + '×' : '…'}</div><div class="pnote" style="margin:0 0 6px">${x ? 'faster than real time' : 'warming up'}</div>`
+        + kv('Engine', esc((w.engine || '').replace(/^\w+ · /, '')))
+        + kv('Draft caption', w.last_partial_proc ? `${w.last_partial_proc}s per update` : '–')
+        + kv('Not yet final', `${w.unfinalised_sec}s of audio`)
+        + kv('Chunks done', fmtN(w.final_runs));
+  }
+  let llm;
+  if (l.active) {
+    llm = `<div class="big">${l.tok_s ? l.tok_s + ' tok/s' : '…'}</div><div class="pnote" style="margin:0 0 6px">${l.waiting_first_token ? 'reading the transcript' : 'generating'}</div>`
+        + kv('Model', esc(l.model || '')) + kv('Tokens out', fmtN(l.tokens)) + kv('Elapsed', `${l.elapsed}s`);
+  } else if (l.last) {
+    const x = l.last;
+    llm = `<div class="big">${x.gen_tok_s ? x.gen_tok_s + ' tok/s' : '–'}</div><div class="pnote" style="margin:0 0 6px">last run · ${esc(l.provider || '')} · ${x.total_sec}s</div>`
+        + (x.prompt_tok_s ? kv('Read prompt', `${x.prompt_tok_s} tok/s`) : '')
+        + kv('Tokens', `${fmtN(x.prompt_tokens)} in / ${fmtN(x.output_tokens)} out`)
+        + (x.load_sec ? kv('Model load', `${x.load_sec}s`) : '');
+  } else llm = '<p class="pnote">No summary yet.</p>';
+  llm += o === null ? kv('Ollama', 'not running', 'warn')
+       : o.model ? kv('In memory', `${esc(o.model)} · ${o.size_gb} GB`) + kv('On GPU', `${o.gpu_pct}%`)
+       : kv('Ollama', 'no model loaded');
+  $('#perf').innerHTML = pcard('This Mac', mac) + pcard('Speech to text', stt) + pcard('Summary model', llm);
+}
+
+async function pollMetrics() {
+  try {
+    metrics = await api('/api/metrics');
+    renderHealth(metrics.system);
+    if ($('#perfToggle').getAttribute('aria-expanded') === 'true') renderPerf(metrics);
+    updateProcessingDetail();
+  } catch {}
+}
+function setPerf(open) {
+  document.body.classList.toggle('perf-open', open);
+  $('#perfToggle').setAttribute('aria-expanded', String(open));
+  lsSet('perfOpen', open ? '1' : '0');
+  if (open && metrics) renderPerf(metrics);
+}
+$('#perfToggle').onclick = () => setPerf($('#perfToggle').getAttribute('aria-expanded') !== 'true');
+$('#perfClose').onclick = () => setPerf(false);
+
+/* ---------------- wiring & start ---------------- */
+$('#newBtn').onclick = openNew;
+$('#list').onclick = e => {
+  const d = e.target.closest('.del'); if (d) { deleteMeeting(d.dataset.del); return; }
+  const b = e.target.closest('.item');
+  if (!b) return;
+  if (selecting) {
+    const id = b.dataset.id;
+    picked.has(id) ? picked.delete(id) : picked.add(id);
+    renderList();
+  } else openMeeting(b.dataset.id);
+};
+$('#selBtn').onclick = () => setSelecting(!selecting);
+$('#selAll').onclick = () => {
+  const vis = visibleItems();
+  if (vis.length && vis.every(m => picked.has(m.id))) vis.forEach(m => picked.delete(m.id));
+  else vis.forEach(m => picked.add(m.id));
+  renderList();
+};
+$('#selDelete').onclick = deleteSelected;
+$('#search').oninput = e => { search = e.target.value; renderList(); };
+window.addEventListener('hashchange', () => { const id = location.hash.slice(1); if (id && id !== selected) openMeeting(id); });
+
+(async () => {
+  setPerf(lsGet('perfOpen') === null ? innerWidth >= 1200 : lsGet('perfOpen') === '1');
+  if (location.protocol === 'file:') {
+    $('#v-new').innerHTML = `<div class="card"><h3>This page must be opened through the app server</h3>
+      <p>In Terminal run <code>./run.sh</code>, then open <b>http://127.0.0.1:8765</b></p></div>`;
+    return;
+  }
+  try { config = await api('/api/config'); }
+  catch { $('#v-new').innerHTML = '<div class="alert error"><div><b>Cannot reach the app server.</b> Is <code>./run.sh</code> still running in Terminal?</div></div>'; return; }
+  loadStt();
+  await Promise.all([loadProviders(), loadDevices(), refreshList()]);
+  await poll();
+  const id = location.hash.slice(1);
+  if (id && !status.recording && items.some(m => m.id === id)) openMeeting(id);
+  setInterval(poll, 1000);
+  setInterval(fetchLive, 600);
+  pollMetrics(); setInterval(pollMetrics, 2000);
+})();
+</script>
+</body>
+</html>

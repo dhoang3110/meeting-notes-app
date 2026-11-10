@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+.DS_Store
+.pytest_cache/
+# Golden data comes from real meetings: audio and transcripts stay on this machine.
+# Only tests/golden/manifest.json is tracked.
+tests/golden/*/audio.*
+tests/golden/*/reference.*
+tests/results/*.json
+
+# Playwright e2e (tests/e2e)
+tests/e2e/node_modules/
+tests/e2e/.data/
+tests/e2e/test-results/
+tests/e2e/playwright-report/
