@@ -17,3 +17,5 @@ tests/e2e/playwright-report/
 
 # Built native helper
 native/bin/
+packaging/dist/
+build_tmp/

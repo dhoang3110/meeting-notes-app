@@ -14,7 +14,13 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).parent / ".env")
+# Packaged (.app, PyInstaller) the code is read-only: bundled files live under sys._MEIPASS and the
+# user's settings go to Application Support instead of next to the source.
+FROZEN = getattr(sys, "frozen", False)
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
+CONFIG_DIR = Path.home() / "Library" / "Application Support" / "MeetingNotes" if FROZEN else Path(__file__).parent
+CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+load_dotenv(CONFIG_DIR / ".env")
 
 import numpy as np  # noqa: E402
 import uvicorn  # noqa: E402
@@ -34,7 +40,7 @@ import voiceprint  # noqa: E402
 
 NOTES_DIR = Path(os.path.expanduser(os.getenv("NOTES_DIR", "~/MeetingNotes")))
 NOTES_DIR.mkdir(parents=True, exist_ok=True)
-STATIC = Path(__file__).parent / "static"
+STATIC = RESOURCE_DIR / "static"
 
 app = FastAPI(title="Meeting Notes")
 _lock = threading.Lock()
@@ -315,7 +321,7 @@ def config():
     }
 
 
-ENV_FILE = Path(__file__).parent / ".env"
+ENV_FILE = CONFIG_DIR / ".env"
 
 
 class SettingsBody(BaseModel):
@@ -875,7 +881,22 @@ def _start_detector():
     _detector.start()
 
 
+def _exit_with_parent():
+    """Packaged: the Swift shell owns this server. If the shell dies without a clean Quit (crash,
+    kill), stop too instead of lingering as an orphan that holds the microphone and a port."""
+    parent = os.getppid()
+
+    def watch():
+        while True:
+            time.sleep(2)
+            if os.getppid() != parent:
+                os._exit(0)
+    threading.Thread(target=watch, daemon=True).start()
+
+
 if __name__ == "__main__":
+    if FROZEN:
+        _exit_with_parent()
     port = int(os.getenv("PORT", "8765"))
     print(f"\n  Meeting Notes running at http://127.0.0.1:{port}\n  Notes folder: {NOTES_DIR}\n")
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

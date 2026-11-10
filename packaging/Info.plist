@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Meeting Notes</string>
+  <key>CFBundleDisplayName</key><string>Meeting Notes</string>
+  <key>CFBundleIdentifier</key><string>com.dhoang.meetingnotes</string>
+  <key>CFBundleExecutable</key><string>MeetingNotes</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>14.4</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Meeting Notes records your voice to transcribe your meetings. Audio stays on this Mac.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Meeting Notes records the other participants' audio (Teams, Zoom, Meet, YouTube) to transcribe your meetings. Audio stays on this Mac.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Meeting Notes shows a notification when a meeting starts or ends.</string>
+</dict>
+</plist>
