@@ -31,6 +31,10 @@ swiftc -swift-version 5 -O packaging/shell/main.swift -o "$APP/Contents/MacOS/Me
 cp packaging/Info.plist "$APP/Contents/Info.plist"
 cp -R packaging/dist/server "$APP/Contents/Resources/server"
 cp native/bin/systap "$APP/Contents/Resources/bin/systap"
+# Parakeet decodes audio through an `ffmpeg` on PATH; a GUI app has no Homebrew PATH, so ship one
+# (static build, system frameworks only; see requirements-dev.txt: imageio-ffmpeg).
+cp "$(.venv/bin/python -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')" "$APP/Contents/Resources/bin/ffmpeg"
+chmod +x "$APP/Contents/Resources/bin/ffmpeg"
 
 echo "==> sign ($SIGN_ID)"
 OPTS=(--force --timestamp=none --sign "$SIGN_ID" --entitlements packaging/entitlements.plist)

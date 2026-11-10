@@ -49,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNaviga
         var env = ProcessInfo.processInfo.environment
         env["PORT"] = String(port)
         env["SYSTAP_BIN"] = res + "/bin/systap"
+        env["PATH"] = res + "/bin:" + (env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin")   // bundled ffmpeg first
         p.environment = env
         let logDir = NSHomeDirectory() + "/Library/Logs/MeetingNotes"
         try? FileManager.default.createDirectory(atPath: logDir, withIntermediateDirectories: true)
