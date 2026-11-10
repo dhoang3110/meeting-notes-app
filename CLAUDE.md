@@ -18,6 +18,9 @@ A local Mac (Apple Silicon) meeting recorder: records mic + system audio (via Bl
 .venv/bin/python -m pytest tests/test_units.py -k <name>             # single test
 .venv/bin/python tests/bench.py --llm ollama:qwen2.5:14b # benchmark STT/LLM models; writes tests/results/ and compares with the previous run
 .venv/bin/python tests/build_golden.py [--refresh]                   # build golden dataset from recordings in ~/MeetingNotes
+./native/build.sh                                                    # build the systap Swift helper into native/bin/
+./packaging/build_app.sh                                             # build packaging/dist/MeetingNotes.app (systap + PyInstaller server + Swift shell); SKIP_SERVER=1 reuses the server, SIGN_ID / HARDENED=1 for signing
+cd proxy && npm test                                                 # Cloudflare Worker tests (node --test)
 ```
 
 ```bash
@@ -44,9 +47,10 @@ Flat module layout at the repo root; `app.py` wires everything together.
 - **cloud.py + proxy/** — "Cloud" summary provider for the commercial build: `cloud.py` posts only transcript text (plus a random per-device UUID and the meeting id) to `CLOUD_API_URL`; `proxy/` is the Cloudflare Worker behind it (holds the Anthropic key, fixed prompt generated from `summarizer.py` by `proxy/gen_prompts.py`, free tier of 5 distinct meetings per device in KV, per-IP and global daily caps, optional invite codes). Re-summarising a counted meeting is free; an upstream failure is not charged. `QuotaExceeded` surfaces as the job error with a hint to use a local model. Worker tests: `cd proxy && npm test`.
 - **summarizer.py** — `summarize()` dispatches to Ollama (default) or Claude (provider spec may be `ollama:<model>`; see `_split_provider` in app.py). Ollama path chunks long transcripts (`_ollama_summarize`) with `OLLAMA_NUM_CTX`. Expects a JSON object back (`JSON_SPEC`, parsed by `_parse_json`); `render_markdown` produces `notes.md`. Tracks LLM speed stats via `llm_stats()`.
 - **meeting_detector.py** — polls CoreAudio (ctypes, macOS 14.4+) for processes with a running input stream; when a `MEETING_DETECT_APPS` bundle prefix (default Teams) holds the mic ~4 s it fires once per meeting and re-arms after the mic is released. `app.py` (`_on_meeting_detected`) shows a native `osascript` dialog and, on Record, calls `start()` with the default mic + BlackHole. Auto-stop (`_on_meeting_ended`, `MEETING_AUTO_STOP`): once the app has released the mic for `MEETING_END_GRACE_SEC` (40 s) the recording of that meeting is stopped and summarised (`_auto_started`: set by `start()` whenever Teams holds the mic at that moment, so the "Record?" dialog and a manual Start during a call both count), cut at the release time (`released_at`) + `END_MARGIN_SEC` (`Recorder.stop(keep_sec=…)` trims the tracks, `trim_segments` the live captions); recordings started while no meeting app holds the mic are never auto-stopped. Teams keeps its input stream while muted (checked on a real call), so mute is not an end. A shorter gap that re-arms the detector looks the same for a back-to-back call and a reconnect, so `_ask_new_meeting` asks (timeout keeps recording). Disable with `MEETING_DETECT=0`.
+- **packaging/** — macOS `.app`: `shell/main.swift` is a WKWebView shell around the PyInstaller-built server, with `systap` and a static `ffmpeg` (Parakeet decodes through an `ffmpeg` on PATH, which a GUI app lacks) under `Contents/Resources/bin`. When frozen (`app.FROZEN`) bundled files come from `sys._MEIPASS` (`RESOURCE_DIR`) and `.env` is read from `~/Library/Application Support/MeetingNotes/` (`CONFIG_DIR`) instead of the repo root; keep new file paths going through these.
 - **metrics.py** — background sampler for system stats (CPU/RAM/GPU/thermal) and Ollama model status, shown in the UI.
 
-Each meeting is a folder `NOTES_DIR/<timestamp>_<slug>/` with `audio.flac`, `transcript.json`, `notes.json`, `notes.md`, `meta.json`. The folder name doubles as the meeting id in the API.
+Each meeting is a folder `NOTES_DIR/<timestamp>_<slug>/` with `audio.flac`, `transcript.json`, `notes.json`, `notes.md`, `meta.json`. The folder name doubles as the meeting id in the API. `audio.flac` is deleted once notes are saved (a failed run keeps it for retry) unless `KEEP_AUDIO=1` or `"keep_audio": true` in that meeting's `meta.json`. After each meeting the speech model is unloaded (`KEEP_MODEL_LOADED=1` keeps it).
 
 ## Tests
 
@@ -64,4 +68,4 @@ Each meeting is a folder `NOTES_DIR/<timestamp>_<slug>/` with `audio.flac`, `tra
 
 ## Configuration
 
-All via `.env` (see `.env.example`; `.env` is git-ignored and is never committed). Key knobs: `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`, `OLLAMA_*`, `NOTES_LANGUAGE`, `WHISPER_LANGUAGE`, `WHISPER_VOCABULARY`, `LIVE_*`, `NOTES_DIR`, `PORT`.
+All via `.env` (see `.env.example`; `.env` is git-ignored and is never committed). Key knobs: `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`, `OLLAMA_*`, `TRANSCRIBE_MODEL`, `CLOUD_API_URL`, `NOTES_LANGUAGE`, `WHISPER_LANGUAGE`, `WHISPER_VOCABULARY`, `LIVE_*`, `NOTES_DIR`, `PORT`.
