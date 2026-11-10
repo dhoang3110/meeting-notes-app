@@ -37,7 +37,7 @@ HOP_SEC = 0.1
 ME = "Me"
 OTHERS = "Others"
 
-SYSTEM_DEVICE_HINTS = ("blackhole", "loopback", "soundflower")
+SYSTEM_DEVICE_HINTS = ("blackhole", "loopback", "soundflower", "system audio (built-in)")
 
 MIN_MIC_RMS = 1e-3        # the mic must be at least this loud to count as speech
 SYS_ACTIVE_RMS = 2e-3     # the system track is "playing" above this level

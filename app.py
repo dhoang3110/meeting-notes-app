@@ -28,6 +28,7 @@ import live  # noqa: E402
 import metrics  # noqa: E402
 import speakers  # noqa: E402
 import summarizer  # noqa: E402
+import systap  # noqa: E402
 import transcriber  # noqa: E402
 import voiceprint  # noqa: E402
 
@@ -771,11 +772,14 @@ END_MARGIN_SEC = 2.0           # audio kept after the meeting app released the m
 
 
 def _default_devices() -> list[int]:
-    """What the UI picks by default: the system microphone plus BlackHole if installed."""
+    """What the UI picks by default: the system microphone plus the system-audio source, which
+    is the built-in tap when its helper is available, otherwise BlackHole if installed."""
     from recorder import list_input_devices
     import sounddevice as sd
     devs = list_input_devices()
-    blackhole = next((d["index"] for d in devs if "blackhole" in d["name"].lower()), None)
+    blackhole = next((d["index"] for d in devs if d["name"] == systap.SYSTEM_TAP_NAME), None)
+    if blackhole is None:
+        blackhole = next((d["index"] for d in devs if "blackhole" in d["name"].lower()), None)
     mic = sd.default.device[0]
     if mic is None or mic < 0 or mic == blackhole:
         mic = next((d["index"] for d in devs if d["index"] != blackhole), None)

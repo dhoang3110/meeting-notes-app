@@ -13,6 +13,7 @@ import soundfile as sf
 from scipy.signal import resample_poly
 
 import speakers
+import systap
 
 TARGET_SR = 16000
 STALL_SEC = 2.0   # a track this far behind the others is padded with silence, not waited for
@@ -20,8 +21,25 @@ SYNC_SEC = 30.0   # how often a track's WAV header is refreshed on disk
 STOP_TIMEOUT_SEC = 5.0   # how long to wait for an audio stream to close before abandoning it
 
 
+def _query_device(index: int) -> dict:
+    """sounddevice's device info; the built-in system-audio tap is described here instead."""
+    if index == systap.SYSTEM_TAP_INDEX:
+        return {"name": systap.SYSTEM_TAP_NAME, "default_samplerate": 48000, "max_input_channels": 1}
+    return sd.query_devices(index)
+
+
+def _open_stream(index: int, samplerate: int, channels: int, callback):
+    if index == systap.SYSTEM_TAP_INDEX:
+        return systap.TapStream(samplerate=samplerate, channels=channels, callback=callback)
+    return sd.InputStream(device=index, samplerate=samplerate, channels=channels,
+                          dtype="float32", callback=callback)
+
+
 def list_input_devices():
     devices = []
+    if systap.available():
+        devices.append({"index": systap.SYSTEM_TAP_INDEX, "name": systap.SYSTEM_TAP_NAME,
+                        "channels": 1, "samplerate": 48000})
     for i, d in enumerate(sd.query_devices()):
         if d["max_input_channels"] > 0:
             devices.append({
@@ -37,7 +55,7 @@ class _Track:
     """One input device, streamed to a temporary WAV file on disk."""
 
     def __init__(self, device_index: int, path: Path):
-        info = sd.query_devices(device_index)
+        info = _query_device(device_index)
         self.name = info["name"]
         self.path = path
         self.sr = int(info["default_samplerate"])
@@ -54,9 +72,7 @@ class _Track:
         self._file = sf.SoundFile(str(path), mode="w", samplerate=self.sr,
                                   channels=1, subtype="PCM_16")
         self._writer = threading.Thread(target=self._write_loop, daemon=True)
-        self._stream = sd.InputStream(device=device_index, samplerate=self.sr,
-                                      channels=self.channels, dtype="float32",
-                                      callback=self._callback)
+        self._stream = _open_stream(device_index, self.sr, self.channels, self._callback)
 
     def _callback(self, indata, frames, time_info, status):
         mono = indata.mean(axis=1)
@@ -333,13 +349,12 @@ class _Meter:
     """One input device opened only to read its loudness. Nothing is recorded or kept."""
 
     def __init__(self, device_index: int):
-        info = sd.query_devices(device_index)
+        info = _query_device(device_index)
         self.name = info["name"]
         self.level = 0.0   # loudness of the latest block (RMS)
         self.peak = 0.0    # loudest sample since the test started
-        self._stream = sd.InputStream(device=device_index, samplerate=int(info["default_samplerate"]),
-                                      channels=max(1, min(2, info["max_input_channels"])),
-                                      dtype="float32", callback=self._callback)
+        self._stream = _open_stream(device_index, int(info["default_samplerate"]),
+                                    max(1, min(2, info["max_input_channels"])), self._callback)
         self._stream.start()
 
     def _callback(self, indata, frames, time_info, status):

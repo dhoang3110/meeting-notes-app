@@ -1125,3 +1125,67 @@ def test_manual_start_during_a_call_is_auto_stopped(monkeypatch):
     assert app._meeting_on_mic() is False                  # MEETING_AUTO_STOP=0
     monkeypatch.setattr(app, "_detector", None)
     assert app._meeting_on_mic() is False                  # detector off (MEETING_DETECT=0 / not macOS)
+
+
+# ---------- built-in system audio tap (systap) ----------
+
+def test_systap_is_listed_and_treated_as_system_audio(monkeypatch):
+    import systap, speakers
+    monkeypatch.setattr(systap, "available", lambda: True)
+    monkeypatch.setattr(recorder.sd, "query_devices", lambda: [])
+    devs = recorder.list_input_devices()
+    tap = next(d for d in devs if d["index"] == systap.SYSTEM_TAP_INDEX)
+    assert speakers.role_of(tap["name"]) == "system"
+    monkeypatch.setattr(systap, "available", lambda: False)
+    assert all(d["index"] != systap.SYSTEM_TAP_INDEX for d in recorder.list_input_devices())
+
+
+def test_systap_stream_delivers_blocks_and_reports_a_dead_helper(tmp_path, monkeypatch):
+    import sys
+    import time
+    import systap
+    fake = tmp_path / "fake_systap.py"
+    fake.write_text("import sys, struct\n"
+                    "sys.stdout.buffer.write(struct.pack('<%df' % 1920, *([0.25] * 1920)))\n"
+                    "sys.stdout.buffer.flush()\n"
+                    "import time; time.sleep(5)\n")
+    wrapper = tmp_path / "systap"
+    wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} {fake}\n")
+    wrapper.chmod(0o755)
+    monkeypatch.setenv("SYSTAP_BIN", str(wrapper))
+    got = []
+    s = systap.TapStream(callback=lambda indata, frames, t, st: got.append(indata))
+    s.start()
+    for _ in range(50):
+        if len(got) >= 2:
+            break
+        time.sleep(0.05)
+    s.stop()
+    assert len(got) >= 2 and got[0].shape == (systap.BLOCK_SAMPLES, 1) and abs(float(got[0][0, 0]) - 0.25) < 1e-6
+
+    bad = tmp_path / "bad"
+    bad.write_text("#!/bin/sh\necho 'no permission' >&2\nexit 1\n")
+    bad.chmod(0o755)
+    monkeypatch.setenv("SYSTAP_BIN", str(bad))
+    with pytest.raises(RuntimeError, match="no permission"):
+        systap.TapStream(callback=lambda *a: None).start()
+
+
+def test_recorder_track_can_use_the_systap_pseudo_device(tmp_path, monkeypatch):
+    import systap
+    created = {}
+
+    class FakeTap:
+        def __init__(self, samplerate, channels, callback):
+            created.update(sr=samplerate, ch=channels, cb=callback)
+        def start(self): pass
+        def stop(self): pass
+        def close(self): pass
+
+    monkeypatch.setattr(systap, "TapStream", FakeTap)
+    t = recorder._Track(systap.SYSTEM_TAP_INDEX, tmp_path / "t.wav")
+    assert t.role == "system" and t.sr == 48000 and created["ch"] == 1
+    t.start()
+    created["cb"](np.full((960, 1), 0.3, dtype="float32"), 960, None, None)
+    t.stop()
+    assert t.peak > 0.29
