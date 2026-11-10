@@ -17,7 +17,7 @@ if [ "${SKIP_SERVER:-0}" = "1" ] && [ -d packaging/dist/server ]; then echo "(re
 rm -rf packaging/dist/server build_tmp
 mkdir -p build_tmp
 .venv/bin/pyinstaller --noconfirm --onedir --name server --distpath packaging/dist \
-  --workpath build_tmp --specpath build_tmp --paths . --add-data "$ROOT/static:static" \
+  --workpath build_tmp --specpath build_tmp --paths . --add-data "$ROOT/static:static" --add-data "$ROOT/packaging/defaults.env:." \
   --collect-all mlx --collect-all parakeet_mlx --collect-all mlx_whisper --collect-all sherpa_onnx \
   --collect-all sounddevice --collect-all soundfile \
   --exclude-module torch --exclude-module torchaudio --exclude-module matplotlib --exclude-module tkinter \

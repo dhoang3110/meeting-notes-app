@@ -21,6 +21,7 @@ RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
 CONFIG_DIR = Path.home() / "Library" / "Application Support" / "MeetingNotes" if FROZEN else Path(__file__).parent
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 load_dotenv(CONFIG_DIR / ".env")
+load_dotenv(RESOURCE_DIR / "defaults.env")   # packaged defaults; never overrides what is already set
 
 import numpy as np  # noqa: E402
 import uvicorn  # noqa: E402
